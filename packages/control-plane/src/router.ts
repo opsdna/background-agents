@@ -867,6 +867,7 @@ async function handleSessionWsToken(
     githubEmail?: string;
     githubToken?: string; // User's GitHub OAuth token for PR creation
     githubTokenExpiresAt?: number; // Token expiry timestamp in milliseconds
+    githubRefreshToken?: string; // GitHub OAuth refresh token for server-side renewal
   };
 
   if (!body.userId) {
@@ -886,6 +887,21 @@ async function handleSessionWsToken(
     }
   }
 
+  // Encrypt the GitHub refresh token if provided
+  let githubRefreshTokenEncrypted: string | null = null;
+  if (body.githubRefreshToken && env.TOKEN_ENCRYPTION_KEY) {
+    try {
+      githubRefreshTokenEncrypted = await encryptToken(
+        body.githubRefreshToken,
+        env.TOKEN_ENCRYPTION_KEY
+      );
+    } catch (e) {
+      logger.error("Failed to encrypt GitHub refresh token", {
+        error: e instanceof Error ? e : String(e),
+      });
+    }
+  }
+
   const doId = env.SESSION.idFromName(sessionId);
   const stub = env.SESSION.get(doId);
 
@@ -902,6 +918,7 @@ async function handleSessionWsToken(
           githubName: body.githubName,
           githubEmail: body.githubEmail,
           githubTokenEncrypted,
+          githubRefreshTokenEncrypted,
           githubTokenExpiresAt: body.githubTokenExpiresAt,
         }),
       },

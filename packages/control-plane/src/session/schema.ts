@@ -147,6 +147,9 @@ export function initSchema(sql: SqlStorage): void {
   runMigration(sql, `ALTER TABLE participants ADD COLUMN ws_auth_token TEXT`);
   runMigration(sql, `ALTER TABLE participants ADD COLUMN ws_token_created_at INTEGER`);
 
+  // Migration: Add GitHub refresh token column to participants table
+  runMigration(sql, `ALTER TABLE participants ADD COLUMN github_refresh_token_encrypted TEXT`);
+
   // Migration: Add snapshot_image_id column to sandbox table for Modal filesystem snapshots
   runMigration(sql, `ALTER TABLE sandbox ADD COLUMN snapshot_image_id TEXT`);
 

@@ -17,8 +17,8 @@ export interface Env {
   DB: D1Database;
 
   // Secrets
-  GITHUB_CLIENT_ID: string;
-  GITHUB_CLIENT_SECRET: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
   TOKEN_ENCRYPTION_KEY: string;
   ENCRYPTION_KEY: string; // Key for encrypting/decrypting tokens
   MODAL_TOKEN_ID?: string;
