@@ -41,6 +41,28 @@ module "slack_kv" {
 }
 
 # =============================================================================
+# Cloudflare D1 Database
+# =============================================================================
+
+resource "cloudflare_d1_database" "main" {
+  account_id = var.cloudflare_account_id
+  name       = "open-inspect-${local.name_suffix}"
+}
+
+resource "null_resource" "d1_schema" {
+  depends_on = [cloudflare_d1_database.main]
+
+  triggers = {
+    database_id = cloudflare_d1_database.main.id
+    schema_sha  = filesha256("${var.project_root}/terraform/d1/schema.sql")
+  }
+
+  provisioner "local-exec" {
+    command = "wrangler d1 execute --remote --database-id ${self.triggers.database_id} --file ${var.project_root}/terraform/d1/schema.sql"
+  }
+}
+
+# =============================================================================
 # Cloudflare Workers
 # =============================================================================
 
@@ -69,6 +91,13 @@ module "control_plane_worker" {
     {
       binding_name = "SESSION_INDEX"
       namespace_id = module.session_index_kv.namespace_id
+    }
+  ]
+
+  d1_databases = [
+    {
+      binding_name = "DB"
+      database_id  = cloudflare_d1_database.main.id
     }
   ]
 
@@ -112,7 +141,7 @@ module "control_plane_worker" {
   compatibility_flags = ["nodejs_compat"]
   migration_tag       = "v1"
 
-  depends_on = [null_resource.control_plane_build, module.session_index_kv]
+  depends_on = [null_resource.control_plane_build, module.session_index_kv, null_resource.d1_schema]
 }
 
 # Build slack-bot worker bundle (only runs during apply, not plan)

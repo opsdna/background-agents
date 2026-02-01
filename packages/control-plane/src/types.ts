@@ -13,6 +13,9 @@ export interface Env {
   // Service bindings
   SLACK_BOT?: Fetcher; // Optional - only if slack-bot is deployed
 
+  // D1 database
+  DB: D1Database;
+
   // Secrets
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
