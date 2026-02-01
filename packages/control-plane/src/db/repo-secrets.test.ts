@@ -1,12 +1,22 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { webcrypto } from "node:crypto";
 import { RepoSecretsStore, RepoSecretsValidationError } from "./repo-secrets";
 import { generateEncryptionKey } from "../auth/crypto";
 
-const globalCrypto = (globalThis as { crypto?: typeof webcrypto }).crypto;
-if (!globalCrypto) {
-  (globalThis as { crypto?: typeof webcrypto }).crypto = webcrypto;
-}
+let didPolyfillCrypto = false;
+
+beforeAll(() => {
+  if (!(globalThis as { crypto?: typeof webcrypto }).crypto) {
+    Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
+    didPolyfillCrypto = true;
+  }
+});
+
+afterAll(() => {
+  if (didPolyfillCrypto) {
+    Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
+  }
+});
 
 type RepoSecretRow = {
   repo_id: number;
@@ -18,6 +28,24 @@ type RepoSecretRow = {
   updated_at: number;
 };
 
+/**
+ * Query patterns for FakeD1Database routing.
+ * Matches SQL operations in RepoSecretsStore by their leading clause
+ * after whitespace normalization, making the fake resilient to
+ * formatting changes in the SQL strings.
+ */
+const QUERY_PATTERNS = {
+  SELECT_EXISTING_KEYS: /^SELECT key FROM repo_secrets/,
+  SELECT_KEYS_WITH_METADATA: /^SELECT key, created_at, updated_at FROM repo_secrets/,
+  SELECT_KEYS_WITH_VALUES: /^SELECT key, encrypted_value FROM repo_secrets/,
+  UPSERT_SECRET: /^INSERT INTO repo_secrets/,
+  DELETE_SECRET: /^DELETE FROM repo_secrets/,
+} as const;
+
+function normalizeQuery(query: string): string {
+  return query.replace(/\s+/g, " ").trim();
+}
+
 class FakeD1Database {
   private rows = new Map<string, RepoSecretRow>();
 
@@ -26,14 +54,9 @@ class FakeD1Database {
   }
 
   all(query: string, args: unknown[]) {
-    if (query.includes("SELECT key FROM repo_secrets")) {
-      const repoId = args[0] as number;
-      return Array.from(this.rows.values())
-        .filter((row) => row.repo_id === repoId)
-        .map((row) => ({ key: row.key }));
-    }
+    const normalized = normalizeQuery(query);
 
-    if (query.includes("SELECT key, created_at, updated_at FROM repo_secrets")) {
+    if (QUERY_PATTERNS.SELECT_KEYS_WITH_METADATA.test(normalized)) {
       const repoId = args[0] as number;
       return Array.from(this.rows.values())
         .filter((row) => row.repo_id === repoId)
@@ -45,18 +68,27 @@ class FakeD1Database {
         }));
     }
 
-    if (query.includes("SELECT key, encrypted_value FROM repo_secrets")) {
+    if (QUERY_PATTERNS.SELECT_KEYS_WITH_VALUES.test(normalized)) {
       const repoId = args[0] as number;
       return Array.from(this.rows.values())
         .filter((row) => row.repo_id === repoId)
         .map((row) => ({ key: row.key, encrypted_value: row.encrypted_value }));
     }
 
-    throw new Error(`Unexpected query: ${query}`);
+    if (QUERY_PATTERNS.SELECT_EXISTING_KEYS.test(normalized)) {
+      const repoId = args[0] as number;
+      return Array.from(this.rows.values())
+        .filter((row) => row.repo_id === repoId)
+        .map((row) => ({ key: row.key }));
+    }
+
+    throw new Error(`Unexpected SELECT query: ${query}`);
   }
 
   run(query: string, args: unknown[]) {
-    if (query.includes("INSERT INTO repo_secrets")) {
+    const normalized = normalizeQuery(query);
+
+    if (QUERY_PATTERNS.UPSERT_SECRET.test(normalized)) {
       const [repoId, repoOwner, repoName, key, encryptedValue, createdAt, updatedAt] = args as [
         number,
         string,
@@ -81,14 +113,14 @@ class FakeD1Database {
       return { meta: { changes: 1 } };
     }
 
-    if (query.includes("DELETE FROM repo_secrets")) {
+    if (QUERY_PATTERNS.DELETE_SECRET.test(normalized)) {
       const [repoId, key] = args as [number, string];
       const rowKey = `${repoId}:${key}`;
       const existed = this.rows.delete(rowKey);
       return { meta: { changes: existed ? 1 : 0 } };
     }
 
-    throw new Error(`Unexpected query: ${query}`);
+    throw new Error(`Unexpected mutation query: ${query}`);
   }
 
   async batch(statements: FakePreparedStatement[]) {
