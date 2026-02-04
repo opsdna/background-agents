@@ -879,55 +879,61 @@ async function handleSessionWsToken(
     return error("userId is required");
   }
 
-  // Encrypt the GitHub token if provided
-  let githubTokenEncrypted: string | null = null;
-  if (body.githubToken && env.TOKEN_ENCRYPTION_KEY) {
-    try {
-      githubTokenEncrypted = await encryptToken(body.githubToken, env.TOKEN_ENCRYPTION_KEY);
-    } catch (e) {
-      logger.error("Failed to encrypt GitHub token", {
-        error: e instanceof Error ? e : String(e),
-      });
-      // Continue without token - PR creation will fail if this user triggers it
-    }
-  }
+  // Encrypt the GitHub tokens if provided
+  const { githubTokenEncrypted, githubRefreshTokenEncrypted } = await ctx.metrics.time(
+    "encrypt_tokens",
+    async () => {
+      let accessToken: string | null = null;
+      let refreshToken: string | null = null;
 
-  // Encrypt the GitHub refresh token if provided
-  let githubRefreshTokenEncrypted: string | null = null;
-  if (body.githubRefreshToken && env.TOKEN_ENCRYPTION_KEY) {
-    try {
-      githubRefreshTokenEncrypted = await encryptToken(
-        body.githubRefreshToken,
-        env.TOKEN_ENCRYPTION_KEY
-      );
-    } catch (e) {
-      logger.error("Failed to encrypt GitHub refresh token", {
-        error: e instanceof Error ? e : String(e),
-      });
+      if (body.githubToken && env.TOKEN_ENCRYPTION_KEY) {
+        try {
+          accessToken = await encryptToken(body.githubToken, env.TOKEN_ENCRYPTION_KEY);
+        } catch (e) {
+          logger.error("Failed to encrypt GitHub token", {
+            error: e instanceof Error ? e : String(e),
+          });
+          // Continue without token - PR creation will fail if this user triggers it
+        }
+      }
+
+      if (body.githubRefreshToken && env.TOKEN_ENCRYPTION_KEY) {
+        try {
+          refreshToken = await encryptToken(body.githubRefreshToken, env.TOKEN_ENCRYPTION_KEY);
+        } catch (e) {
+          logger.error("Failed to encrypt GitHub refresh token", {
+            error: e instanceof Error ? e : String(e),
+          });
+        }
+      }
+
+      return { githubTokenEncrypted: accessToken, githubRefreshTokenEncrypted: refreshToken };
     }
-  }
+  );
 
   const doId = env.SESSION.idFromName(sessionId);
   const stub = env.SESSION.get(doId);
 
-  const response = await stub.fetch(
-    internalRequest(
-      "http://internal/internal/ws-token",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: body.userId,
-          githubUserId: body.githubUserId,
-          githubLogin: body.githubLogin,
-          githubName: body.githubName,
-          githubEmail: body.githubEmail,
-          githubTokenEncrypted,
-          githubRefreshTokenEncrypted,
-          githubTokenExpiresAt: body.githubTokenExpiresAt,
-        }),
-      },
-      ctx
+  const response = await ctx.metrics.time("do_fetch", () =>
+    stub.fetch(
+      internalRequest(
+        "http://internal/internal/ws-token",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: body.userId,
+            githubUserId: body.githubUserId,
+            githubLogin: body.githubLogin,
+            githubName: body.githubName,
+            githubEmail: body.githubEmail,
+            githubTokenEncrypted,
+            githubRefreshTokenEncrypted,
+            githubTokenExpiresAt: body.githubTokenExpiresAt,
+          }),
+        },
+        ctx
+      )
     )
   );
 

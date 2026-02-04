@@ -324,7 +324,10 @@ export class SessionDO extends DurableObject<Env> {
    * Handle incoming HTTP requests.
    */
   async fetch(request: Request): Promise<Response> {
+    const fetchStart = performance.now();
+
     this.ensureInitialized();
+    const initMs = performance.now() - fetchStart;
 
     // Extract correlation headers and create a request-scoped logger
     const traceId = request.headers.get("x-trace-id");
@@ -348,7 +351,7 @@ export class SessionDO extends DurableObject<Env> {
     const route = this.routes.find((r) => r.path === path && r.method === request.method);
 
     if (route) {
-      const routeStart = Date.now();
+      const handlerStart = performance.now();
       let status = 500;
       let outcome: "success" | "error" = "error";
       try {
@@ -361,12 +364,16 @@ export class SessionDO extends DurableObject<Env> {
         outcome = "error";
         throw e;
       } finally {
+        const handlerMs = performance.now() - handlerStart;
+        const totalMs = performance.now() - fetchStart;
         this.log.info("do.request", {
           event: "do.request",
           http_method: request.method,
           http_path: path,
           http_status: status,
-          duration_ms: Date.now() - routeStart,
+          duration_ms: Math.round(totalMs * 100) / 100,
+          init_ms: Math.round(initMs * 100) / 100,
+          handler_ms: Math.round(handlerMs * 100) / 100,
           outcome,
         });
       }
