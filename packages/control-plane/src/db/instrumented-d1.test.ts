@@ -48,11 +48,15 @@ class FakeD1PreparedStatement {
 }
 
 class FakeD1Database {
+  /** Statements received by the last batch() call (for assertion). */
+  lastBatchStatements: D1PreparedStatement[] = [];
+
   prepare(query: string) {
     return new FakeD1PreparedStatement(query);
   }
 
   async batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+    this.lastBatchStatements = statements;
     await delay(1);
     return statements.map(() => ({
       results: [{ id: 1 }] as T[],
@@ -222,6 +226,21 @@ describe("instrumentD1", () => {
     expect(metrics.d1Queries[0].rows_read).toBe(15);
     // 3 statements × 2 rows written each = 6 aggregated
     expect(metrics.d1Queries[0].rows_written).toBe(6);
+  });
+
+  it("batch() unwraps instrumented statements before passing to real D1", async () => {
+    const stmts = [
+      db.prepare("SELECT * FROM t WHERE id = ?").bind(1),
+      db.prepare("SELECT * FROM t WHERE id = ?").bind(2),
+    ];
+
+    await db.batch(stmts);
+
+    // The real D1 should receive FakeD1PreparedStatement instances,
+    // not plain-object instrumented wrappers.
+    for (const s of fakeDb.lastBatchStatements) {
+      expect(s).toBeInstanceOf(FakeD1PreparedStatement);
+    }
   });
 
   it("bind() chaining works correctly with instrumented statements", async () => {

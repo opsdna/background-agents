@@ -93,15 +93,26 @@ export function createRequestMetrics(): RequestMetrics {
 // D1 statement wrapper
 // ---------------------------------------------------------------------------
 
+/** Symbol used to store the original D1PreparedStatement on instrumented wrappers. */
+const ORIGINAL_STMT = Symbol("originalD1Statement");
+
+/** Extract the underlying D1PreparedStatement from an instrumented wrapper (or return as-is). */
+function unwrapStatement(stmt: D1PreparedStatement): D1PreparedStatement {
+  return (stmt as unknown as Record<symbol, D1PreparedStatement>)[ORIGINAL_STMT] ?? stmt;
+}
+
 /**
  * Wrap a D1PreparedStatement to time its terminal methods (run, first, all, raw).
  * bind() returns a new instrumented statement so chaining works correctly.
+ *
+ * The original statement is stored via ORIGINAL_STMT so that batch() can
+ * unwrap instrumented statements before passing them to the real D1.
  */
 function instrumentStatement(
   stmt: D1PreparedStatement,
   metrics: RequestMetrics
 ): D1PreparedStatement {
-  return {
+  const wrapper = {
     bind(...values: unknown[]): D1PreparedStatement {
       return instrumentStatement(stmt.bind(...values), metrics);
     },
@@ -148,6 +159,9 @@ function instrumentStatement(
       return result;
     },
   } as unknown as D1PreparedStatement;
+
+  (wrapper as unknown as Record<symbol, D1PreparedStatement>)[ORIGINAL_STMT] = stmt;
+  return wrapper;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +184,7 @@ export function instrumentD1(db: D1Database, metrics: RequestMetrics): D1Databas
 
     async batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
       const start = Date.now();
-      const results = await db.batch<T>(statements);
+      const results = await db.batch<T>(statements.map(unwrapStatement));
       const elapsed = Date.now() - start;
 
       let serverMs = 0;
