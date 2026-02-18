@@ -6,7 +6,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { SidebarLayout, useSidebarContext } from "@/components/sidebar-layout";
 import { formatModelNameLower } from "@/lib/format";
-import { DEFAULT_MODEL, getDefaultReasoningEffort, type ModelCategory } from "@open-inspect/shared";
+import {
+  DEFAULT_MODEL,
+  getDefaultReasoningEffort,
+  isValidReasoningEffort,
+  type ModelCategory,
+} from "@open-inspect/shared";
 import { useEnabledModels } from "@/hooks/use-enabled-models";
 import { ReasoningEffortPills } from "@/components/reasoning-effort-pills";
 
@@ -18,6 +23,10 @@ interface Repo {
   description: string | null;
   private: boolean;
 }
+
+const LAST_SELECTED_REPO_STORAGE_KEY = "open-inspect-last-selected-repo";
+const LAST_SELECTED_MODEL_STORAGE_KEY = "open-inspect-last-selected-model";
+const LAST_SELECTED_REASONING_EFFORT_STORAGE_KEY = "open-inspect-last-selected-reasoning-effort";
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -37,6 +46,8 @@ export default function Home() {
   const sessionCreationPromise = useRef<Promise<string | null> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingConfigRef = useRef<{ repo: string; model: string } | null>(null);
+  const hasHydratedModelPreferences = useRef(false);
+  const { enabledModels, enabledModelOptions } = useEnabledModels();
 
   const fetchRepos = useCallback(async () => {
     setLoadingRepos(true);
@@ -47,7 +58,14 @@ export default function Home() {
         const repoList = data.repos || [];
         setRepos(repoList);
         if (repoList.length > 0) {
-          setSelectedRepo((current) => current || repoList[0].fullName);
+          const lastSelectedRepo = localStorage.getItem(LAST_SELECTED_REPO_STORAGE_KEY);
+          const hasLastSelectedRepo = repoList.some(
+            (repo: Repo) => repo.fullName === lastSelectedRepo
+          );
+          const defaultRepo =
+            (hasLastSelectedRepo ? lastSelectedRepo : repoList[0].fullName) ?? repoList[0].fullName;
+
+          setSelectedRepo((current) => current || defaultRepo);
         }
       }
     } catch (error) {
@@ -62,6 +80,44 @@ export default function Home() {
       fetchRepos();
     }
   }, [session, fetchRepos]);
+
+  useEffect(() => {
+    if (!selectedRepo) return;
+    localStorage.setItem(LAST_SELECTED_REPO_STORAGE_KEY, selectedRepo);
+  }, [selectedRepo]);
+
+  useEffect(() => {
+    if (enabledModels.length === 0 || hasHydratedModelPreferences.current) return;
+
+    const storedModel = localStorage.getItem(LAST_SELECTED_MODEL_STORAGE_KEY);
+    const selectedModelFromStorage =
+      storedModel && enabledModels.includes(storedModel)
+        ? storedModel
+        : (enabledModels[0] ?? DEFAULT_MODEL);
+
+    const storedReasoningEffort = localStorage.getItem(LAST_SELECTED_REASONING_EFFORT_STORAGE_KEY);
+    const reasoningEffortFromStorage =
+      storedReasoningEffort &&
+      isValidReasoningEffort(selectedModelFromStorage, storedReasoningEffort)
+        ? storedReasoningEffort
+        : getDefaultReasoningEffort(selectedModelFromStorage);
+
+    setSelectedModel(selectedModelFromStorage);
+    setReasoningEffort(reasoningEffortFromStorage);
+    hasHydratedModelPreferences.current = true;
+  }, [enabledModels]);
+
+  useEffect(() => {
+    if (!hasHydratedModelPreferences.current) return;
+    localStorage.setItem(LAST_SELECTED_MODEL_STORAGE_KEY, selectedModel);
+
+    if (reasoningEffort) {
+      localStorage.setItem(LAST_SELECTED_REASONING_EFFORT_STORAGE_KEY, reasoningEffort);
+      return;
+    }
+
+    localStorage.removeItem(LAST_SELECTED_REASONING_EFFORT_STORAGE_KEY);
+  }, [selectedModel, reasoningEffort]);
 
   useEffect(() => {
     if (abortControllerRef.current) {
@@ -132,16 +188,19 @@ export default function Home() {
     return promise;
   }, [selectedRepo, selectedModel, reasoningEffort, pendingSessionId]);
 
-  const { enabledModels, enabledModelOptions } = useEnabledModels();
-
-  // Reset to default if the selected model is no longer enabled
+  // Reset selections when model preferences change
   useEffect(() => {
     if (enabledModels.length > 0 && !enabledModels.includes(selectedModel)) {
       const fallback = enabledModels[0] ?? DEFAULT_MODEL;
       setSelectedModel(fallback);
       setReasoningEffort(getDefaultReasoningEffort(fallback));
+      return;
     }
-  }, [enabledModels, selectedModel]);
+
+    if (reasoningEffort && !isValidReasoningEffort(selectedModel, reasoningEffort)) {
+      setReasoningEffort(getDefaultReasoningEffort(selectedModel));
+    }
+  }, [enabledModels, selectedModel, reasoningEffort]);
 
   const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model);
