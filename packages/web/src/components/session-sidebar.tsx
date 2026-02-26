@@ -8,7 +8,13 @@ import useSWR from "swr";
 import { formatRelativeTime, isInactiveSession } from "@/lib/time";
 import { SHORTCUT_LABELS } from "@/lib/keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-media-query";
-import { SidebarIcon, InspectIcon, PlusIcon, SettingsIcon } from "@/components/ui/icons";
+import {
+  SidebarIcon,
+  InspectIcon,
+  PlusIcon,
+  SettingsIcon,
+  BranchIcon,
+} from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 
 export interface SessionItem {
@@ -16,9 +22,11 @@ export interface SessionItem {
   title: string | null;
   repoOwner: string;
   repoName: string;
+  baseBranch: string | null;
   status: string;
   createdAt: number;
   updatedAt: number;
+  spawnSource?: "user" | "agent";
 }
 
 export function buildSessionHref(session: SessionItem) {
@@ -239,6 +247,19 @@ function SessionListItem({
         <span>{relativeTime}</span>
         <span>·</span>
         <span className="truncate">{repoInfo}</span>
+        {session.spawnSource === "agent" && (
+          <>
+            <span>·</span>
+            <span>Sub-task</span>
+          </>
+        )}
+        {session.baseBranch && session.baseBranch !== "main" && (
+          <>
+            <span>·</span>
+            <BranchIcon className="w-3 h-3 flex-shrink-0" />
+            <span className="truncate">{session.baseBranch}</span>
+          </>
+        )}
       </div>
     </Link>
   );

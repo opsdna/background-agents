@@ -52,6 +52,7 @@ import type {
   SandboxStatus,
   ParticipantRole,
 } from "../types";
+import type { SpawnContext } from "@open-inspect/shared";
 import type { SessionRow, ArtifactRow, SandboxRow } from "./types";
 import { SessionRepository } from "./repository";
 import { SessionWebSocketManagerImpl, type SessionWebSocketManager } from "./websocket-manager";
@@ -105,6 +106,9 @@ const WS_AUTH_TIMEOUT_MS = 30000; // 30 seconds
  * the client to fetch a fresh token on reconnect.
  */
 const WS_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Statuses that indicate a session has reached a final state and cannot be cancelled. */
+const TERMINAL_STATUSES = new Set(["completed", "archived", "cancelled", "failed"]);
 
 /**
  * Route definition for internal API endpoints.
@@ -179,6 +183,9 @@ export class SessionDO extends DurableObject<Env> {
       path: "/internal/openai-token-refresh",
       handler: () => this.handleOpenAITokenRefresh(),
     },
+    { method: "GET", path: "/internal/spawn-context", handler: () => this.handleGetSpawnContext() },
+    { method: "GET", path: "/internal/child-summary", handler: () => this.handleGetChildSummary() },
+    { method: "POST", path: "/internal/cancel", handler: () => this.handleCancel() },
   ];
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -1205,6 +1212,7 @@ export class SessionDO extends DurableObject<Env> {
       model: session?.model ?? DEFAULT_MODEL,
       reasoningEffort: session?.reasoning_effort ?? undefined,
       isProcessing,
+      parentSessionId: session?.parent_session_id ?? null,
     };
   }
 
@@ -1436,7 +1444,8 @@ export class SessionDO extends DurableObject<Env> {
       repoOwner: string;
       repoName: string;
       repoId?: number;
-      defaultBranch?: string; // GitHub-reported default branch (e.g., "main", "master")
+      defaultBranch?: string; // Repo's default branch from GitHub
+      branch?: string; // User-selected branch to work on
       title?: string;
       model?: string; // LLM model to use
       reasoningEffort?: string; // Reasoning effort level
@@ -1446,6 +1455,9 @@ export class SessionDO extends DurableObject<Env> {
       scmEmail?: string;
       scmToken?: string | null; // Plain SCM token (will be encrypted)
       scmTokenEncrypted?: string | null; // Pre-encrypted SCM token
+      parentSessionId?: string | null;
+      spawnSource?: "user" | "agent";
+      spawnDepth?: number;
     };
 
     const sessionId = this.ctx.id.toString();
@@ -1478,6 +1490,9 @@ export class SessionDO extends DurableObject<Env> {
     // Validate reasoning effort if provided
     const reasoningEffort = this.validateReasoningEffort(model, body.reasoningEffort);
 
+    // Resolve branch: user-selected branch takes priority, then repo default, then "main"
+    const baseBranch = body.branch || body.defaultBranch || "main";
+
     // Create session (store both internal ID and external name)
     this.repository.upsertSession({
       id: sessionId,
@@ -1486,10 +1501,13 @@ export class SessionDO extends DurableObject<Env> {
       repoOwner: body.repoOwner,
       repoName: body.repoName,
       repoId: body.repoId ?? null,
-      baseBranch: body.defaultBranch,
+      baseBranch,
       model,
       reasoningEffort,
       status: "created",
+      parentSessionId: body.parentSessionId ?? null,
+      spawnSource: body.spawnSource ?? "user",
+      spawnDepth: body.spawnDepth ?? 0,
       createdAt: now,
       updatedAt: now,
     });
@@ -1759,6 +1777,7 @@ export class SessionDO extends DurableObject<Env> {
 
     const result = await pullRequestService.createPullRequest({
       ...body,
+      baseBranch: body.baseBranch || session.base_branch,
       promptingUserId: promptingParticipant.user_id,
       promptingAuth: authResolution.auth,
       sessionUrl,
@@ -1967,5 +1986,114 @@ export class SessionDO extends DurableObject<Env> {
     });
 
     return Response.json({ status: "active" });
+  }
+
+  // --- Sub-session (child) internal handlers ---
+
+  private handleGetSpawnContext(): Response {
+    const session = this.getSession();
+    if (!session) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    const participants = this.repository.listParticipants();
+    const owner = participants.find((p) => p.role === "owner");
+    if (!owner) {
+      return Response.json({ error: "No owner participant found" }, { status: 404 });
+    }
+
+    const context: SpawnContext = {
+      repoOwner: session.repo_owner,
+      repoName: session.repo_name,
+      repoId: session.repo_id,
+      model: session.model,
+      reasoningEffort: session.reasoning_effort ?? null,
+      owner: {
+        userId: owner.user_id,
+        scmLogin: owner.scm_login,
+        scmName: owner.scm_name,
+        scmEmail: owner.scm_email,
+        scmAccessTokenEncrypted: owner.scm_access_token_encrypted,
+        scmRefreshTokenEncrypted: owner.scm_refresh_token_encrypted,
+        scmTokenExpiresAt: owner.scm_token_expires_at,
+      },
+    };
+
+    return Response.json(context);
+  }
+
+  private handleGetChildSummary(): Response {
+    const session = this.getSession();
+    if (!session) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    const sandbox = this.getSandbox();
+    const artifacts = this.repository.listArtifacts();
+    const allEvents = this.repository.listEvents({ limit: 50 });
+
+    // Filter out noisy event types, take first 5
+    const filteredTypes = new Set(["token", "heartbeat", "step_start", "step_finish"]);
+    const recentEvents = allEvents.filter((e) => !filteredTypes.has(e.type)).slice(0, 5);
+
+    const detail = {
+      session: {
+        id: session.id,
+        title: session.title ?? "",
+        status: session.status,
+        repoOwner: session.repo_owner,
+        repoName: session.repo_name,
+        branchName: session.branch_name,
+        model: session.model,
+        createdAt: session.created_at,
+        updatedAt: session.updated_at,
+      },
+      sandbox: sandbox ? { status: sandbox.status } : null,
+      artifacts: artifacts.map((a) => ({
+        type: a.type,
+        url: a.url ?? "",
+        metadata: a.metadata ? JSON.parse(a.metadata) : null,
+      })),
+      recentEvents: recentEvents.map((e) => ({
+        type: e.type,
+        data: JSON.parse(e.data),
+        createdAt: e.created_at,
+      })),
+    };
+
+    return Response.json(detail);
+  }
+
+  private async handleCancel(): Promise<Response> {
+    const session = this.getSession();
+    if (!session) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    if (TERMINAL_STATUSES.has(session.status)) {
+      return Response.json({ error: `Session already ${session.status}` }, { status: 409 });
+    }
+
+    // Stop any in-flight message processing
+    await this.stopExecution();
+
+    // Update session status
+    const now = Date.now();
+    this.repository.updateSessionStatus(session.id, "cancelled", now);
+
+    // Stop sandbox if running
+    const sandbox = this.getSandbox();
+    if (sandbox && sandbox.status !== "stopped" && sandbox.status !== "failed") {
+      const sandboxWs = this.wsManager.getSandboxSocket();
+      if (sandboxWs) {
+        this.wsManager.send(sandboxWs, { type: "shutdown" });
+      }
+      this.updateSandboxStatus("stopped");
+    }
+
+    // Broadcast status change
+    this.broadcast({ type: "session_status", status: "cancelled" });
+
+    return Response.json({ status: "cancelled" });
   }
 }

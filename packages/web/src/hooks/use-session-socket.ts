@@ -25,6 +25,7 @@ interface SessionState {
   repoOwner: string;
   repoName: string;
   branchName: string | null;
+  baseBranch: string;
   status: string;
   sandboxStatus: string;
   messageCount: number;
@@ -32,6 +33,7 @@ interface SessionState {
   model?: string;
   reasoningEffort?: string;
   isProcessing: boolean;
+  parentSessionId?: string | null;
 }
 
 interface Participant {

@@ -49,7 +49,7 @@ export interface Env {
 }
 
 // Session status
-export type SessionStatus = "created" | "active" | "completed" | "archived";
+export type SessionStatus = "created" | "active" | "completed" | "archived" | "cancelled";
 
 // Sandbox status
 export type SandboxStatus =
@@ -268,6 +268,7 @@ export interface SessionState {
   model?: string;
   reasoningEffort?: string;
   isProcessing: boolean;
+  parentSessionId?: string | null;
 }
 
 // Participant presence
@@ -300,6 +301,7 @@ export interface CreateSessionRequest {
   title?: string;
   model?: string; // LLM model to use (e.g., "anthropic/claude-haiku-4-5", "anthropic/claude-sonnet-4-5")
   reasoningEffort?: string; // Reasoning effort level (e.g., "high", "max")
+  branch?: string; // Git branch to work on (defaults to repo's default branch)
 }
 
 export interface CreateSessionResponse {

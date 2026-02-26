@@ -4,7 +4,7 @@ Sandbox entrypoint - manages OpenCode server and bridge lifecycle.
 
 Runs as PID 1 inside the sandbox. Responsibilities:
 1. Perform git sync with latest code
-2. Run repo setup script (if present, fresh clone only)
+2. Run repo hooks (setup/start) based on boot mode
 3. Start OpenCode server
 4. Start bridge process for control plane communication
 5. Monitor processes and restart on crash with exponential backoff
@@ -44,7 +44,9 @@ class SandboxSupervisor:
     BACKOFF_BASE = 2.0
     BACKOFF_MAX = 60.0
     SETUP_SCRIPT_PATH = ".openinspect/setup.sh"
+    START_SCRIPT_PATH = ".openinspect/start.sh"
     DEFAULT_SETUP_TIMEOUT_SECONDS = 300
+    DEFAULT_START_TIMEOUT_SECONDS = 120
 
     def __init__(self):
         self.opencode_process: asyncio.subprocess.Process | None = None
@@ -52,6 +54,7 @@ class SandboxSupervisor:
         self.shutdown_event = asyncio.Event()
         self.git_sync_complete = asyncio.Event()
         self.opencode_ready = asyncio.Event()
+        self.boot_mode = "unknown"
 
         # Configuration from environment (set by Modal/SandboxManager)
         self.sandbox_id = os.environ.get("SANDBOX_ID", "unknown")
@@ -82,6 +85,11 @@ class SandboxSupervisor:
             sandbox_id=self.sandbox_id,
             session_id=session_id,
         )
+
+    @property
+    def base_branch(self) -> str:
+        """The branch to clone/fetch — defaults to 'main'."""
+        return self.session_config.get("branch", "main")
 
     def _build_repo_url(self, authenticated: bool = True) -> str:
         """Build the HTTPS URL for the repository, optionally with clone credentials."""
@@ -121,12 +129,15 @@ class SandboxSupervisor:
             clone_url = self._build_repo_url()
             image_build_mode = os.environ.get("IMAGE_BUILD_MODE") == "true"
             clone_depth = "100" if image_build_mode else "1"
+            base_branch = self.base_branch
 
             result = await asyncio.create_subprocess_exec(
                 "git",
                 "clone",
                 "--depth",
                 clone_depth,
+                "--branch",
+                base_branch,
                 clone_url,
                 str(self.repo_path),
                 stdout=asyncio.subprocess.PIPE,
@@ -159,11 +170,13 @@ class SandboxSupervisor:
                     stderr=asyncio.subprocess.PIPE,
                 )
 
-            # Fetch latest changes
+            # Fetch latest changes for the target branch
+            base_branch = self.base_branch
             result = await asyncio.create_subprocess_exec(
                 "git",
                 "fetch",
                 "origin",
+                base_branch,
                 cwd=self.repo_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -178,9 +191,6 @@ class SandboxSupervisor:
                     exit_code=result.returncode,
                 )
                 return False
-
-            # Get the base branch (default to main)
-            base_branch = self.session_config.get("branch", "main")
 
             # Rebase onto latest
             result = await asyncio.create_subprocess_exec(
@@ -250,7 +260,7 @@ class SandboxSupervisor:
         # Copy all .js files from tools/ (including _-prefixed internal modules)
         if tools_dir.exists():
             for tool_file in tools_dir.iterdir():
-                if tool_file.suffix == ".js":
+                if tool_file.is_file() and tool_file.suffix == ".js":
                     shutil.copy(tool_file, tool_dest / tool_file.name)
 
         # Node modules symlink
@@ -576,38 +586,58 @@ class SandboxSupervisor:
         except Exception as e:
             self.log.error("supervisor.report_error_failed", exc=e)
 
-    async def run_setup_script(self) -> bool:
-        """
-        Run .openinspect/setup.sh if it exists in the cloned repo.
+    def _hook_env(self) -> dict[str, str]:
+        """Build environment for startup hooks."""
+        env = os.environ.copy()
+        env["OPENINSPECT_BOOT_MODE"] = self.boot_mode
+        return env
 
-        Non-fatal: failures are logged but don't block startup.
+    async def _run_hook(
+        self,
+        *,
+        hook_name: str,
+        relative_script_path: str,
+        timeout_env_var: str,
+        default_timeout_seconds: int,
+    ) -> bool:
+        """
+        Run a repo hook script if present.
 
         Returns:
             True if script succeeded or was not present, False on failure/timeout.
         """
-        setup_script = self.repo_path / self.SETUP_SCRIPT_PATH
+        script_path = self.repo_path / relative_script_path
+        start_time = time.time()
 
-        if not setup_script.exists():
-            self.log.debug("setup.skip", reason="no_setup_script", path=str(setup_script))
+        if not script_path.exists():
+            self.log.debug(
+                f"{hook_name}.skip",
+                reason="no_script",
+                path=str(script_path),
+                boot_mode=self.boot_mode,
+            )
             return True
 
         try:
-            timeout_seconds = int(
-                os.environ.get("SETUP_TIMEOUT_SECONDS", str(self.DEFAULT_SETUP_TIMEOUT_SECONDS))
-            )
+            timeout_seconds = int(os.environ.get(timeout_env_var, str(default_timeout_seconds)))
         except ValueError:
-            timeout_seconds = self.DEFAULT_SETUP_TIMEOUT_SECONDS
+            timeout_seconds = default_timeout_seconds
 
-        self.log.info("setup.start", script=str(setup_script), timeout_seconds=timeout_seconds)
+        self.log.info(
+            f"{hook_name}.start",
+            script=str(script_path),
+            timeout_seconds=timeout_seconds,
+            boot_mode=self.boot_mode,
+        )
 
         try:
             process = await asyncio.create_subprocess_exec(
                 "bash",
-                str(setup_script),
+                str(script_path),
                 cwd=self.repo_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                env=os.environ.copy(),
+                env=self._hook_env(),
             )
 
             try:
@@ -617,33 +647,84 @@ class SandboxSupervisor:
                 stdout = await process.stdout.read() if process.stdout else b""
                 await process.wait()
                 output_tail = "\n".join(stdout.decode(errors="replace").splitlines()[-50:])
+                duration_ms = int((time.time() - start_time) * 1000)
                 self.log.error(
-                    "setup.timeout",
+                    f"{hook_name}.timeout",
                     timeout_seconds=timeout_seconds,
                     output_tail=output_tail,
-                    script=str(setup_script),
+                    script=str(script_path),
+                    duration_ms=duration_ms,
+                    boot_mode=self.boot_mode,
                 )
                 return False
 
             output_tail = "\n".join(
                 (stdout.decode(errors="replace") if stdout else "").splitlines()[-50:]
             )
+            duration_ms = int((time.time() - start_time) * 1000)
 
             if process.returncode == 0:
-                self.log.debug("setup.complete", exit_code=0, output_tail=output_tail)
-                return True
-            else:
-                self.log.error(
-                    "setup.failed",
-                    exit_code=process.returncode,
-                    output_tail=output_tail,
-                    script=str(setup_script),
+                # Avoid logging hook stdout at info level to reduce secret exposure risk.
+                self.log.info(
+                    f"{hook_name}.complete",
+                    exit_code=0,
+                    script=str(script_path),
+                    duration_ms=duration_ms,
+                    boot_mode=self.boot_mode,
                 )
-                return False
+                return True
+
+            self.log.error(
+                f"{hook_name}.failed",
+                exit_code=process.returncode,
+                output_tail=output_tail,
+                script=str(script_path),
+                duration_ms=duration_ms,
+                boot_mode=self.boot_mode,
+            )
+            return False
 
         except Exception as e:
-            self.log.error("setup.error", exc=e, script=str(setup_script))
+            duration_ms = int((time.time() - start_time) * 1000)
+            self.log.error(
+                f"{hook_name}.error",
+                exc=e,
+                script=str(script_path),
+                duration_ms=duration_ms,
+                boot_mode=self.boot_mode,
+            )
             return False
+
+    async def run_setup_script(self) -> bool:
+        """
+        Run .openinspect/setup.sh if it exists in the cloned repo.
+
+        Fresh-session failures are non-fatal. Build mode callers may treat
+        failures as fatal.
+
+        Returns:
+            True if script succeeded or was not present, False on failure/timeout.
+        """
+        return await self._run_hook(
+            hook_name="setup",
+            relative_script_path=self.SETUP_SCRIPT_PATH,
+            timeout_env_var="SETUP_TIMEOUT_SECONDS",
+            default_timeout_seconds=self.DEFAULT_SETUP_TIMEOUT_SECONDS,
+        )
+
+    async def run_start_script(self) -> bool:
+        """
+        Run .openinspect/start.sh if it exists in the repository.
+
+        Returns:
+            True if script succeeded or was not present, False on failure/timeout.
+        """
+        return await self._run_hook(
+            hook_name="start",
+            relative_script_path=self.START_SCRIPT_PATH,
+            timeout_env_var="START_TIMEOUT_SECONDS",
+            default_timeout_seconds=self.DEFAULT_START_TIMEOUT_SECONDS,
+        )
 
     async def _quick_git_fetch(self) -> None:
         """
@@ -756,11 +837,13 @@ class SandboxSupervisor:
                 if set_url.returncode != 0:
                     self.log.warn("git.set_url_failed", exit_code=set_url.returncode)
 
-            # Fetch latest
+            # Fetch latest for the target branch
+            base_branch = self.base_branch
             result = await asyncio.create_subprocess_exec(
                 "git",
                 "fetch",
                 "origin",
+                base_branch,
                 cwd=self.repo_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -775,10 +858,6 @@ class SandboxSupervisor:
                 )
                 self.git_sync_complete.set()
                 return False
-
-            # Hard reset to latest — safe because this runs at session startup
-            # before the user has made any changes
-            base_branch = self.session_config.get("branch", "main")
             result = await asyncio.create_subprocess_exec(
                 "git",
                 "reset",
@@ -822,6 +901,18 @@ class SandboxSupervisor:
         from_repo_image = os.environ.get("FROM_REPO_IMAGE") == "true"
 
         if image_build_mode:
+            self.boot_mode = "build"
+        elif restored_from_snapshot:
+            self.boot_mode = "snapshot_restore"
+        elif from_repo_image:
+            self.boot_mode = "repo_image"
+        else:
+            self.boot_mode = "fresh"
+
+        # Expose boot mode to repo hooks and child processes.
+        os.environ["OPENINSPECT_BOOT_MODE"] = self.boot_mode
+
+        if image_build_mode:
             self.log.info("supervisor.image_build_mode")
         elif restored_from_snapshot:
             self.log.info("supervisor.restored_from_snapshot")
@@ -847,10 +938,21 @@ class SandboxSupervisor:
             else:
                 git_sync_success = await self.perform_git_sync()
 
-            # Phase 2: Run repo setup script (skip if restored or from repo image)
+            # Phase 2: Run setup script only for fresh or build boots.
             setup_success: bool | None = None
-            if not restored_from_snapshot and not from_repo_image:
+            if self.boot_mode in ("fresh", "build"):
                 setup_success = await self.run_setup_script()
+                if image_build_mode and not setup_success:
+                    raise RuntimeError("setup hook failed in build mode")
+
+            # Phase 3: Run runtime start hook for all non-build boots.
+            start_success: bool | None = None
+            if self.boot_mode != "build":
+                start_success = await self.run_start_script()
+                if not start_success:
+                    raise RuntimeError("start hook failed")
+            else:
+                start_success = None
 
             # Image build mode: signal completion, then keep sandbox alive for
             # snapshot_filesystem(). The builder streams stdout, detects this
@@ -861,11 +963,11 @@ class SandboxSupervisor:
                 await self.shutdown_event.wait()
                 return
 
-            # Phase 3: Start OpenCode server (in repo directory)
+            # Phase 4: Start OpenCode server (in repo directory)
             await self.start_opencode()
             opencode_ready = True
 
-            # Phase 4: Start bridge (after OpenCode is ready)
+            # Phase 5: Start bridge (after OpenCode is ready)
             await self.start_bridge()
 
             # Emit sandbox.startup wide event
@@ -874,16 +976,18 @@ class SandboxSupervisor:
                 "sandbox.startup",
                 repo_owner=self.repo_owner,
                 repo_name=self.repo_name,
+                boot_mode=self.boot_mode,
                 restored_from_snapshot=restored_from_snapshot,
                 from_repo_image=from_repo_image,
                 git_sync_success=git_sync_success,
                 setup_success=setup_success,
+                start_success=start_success,
                 opencode_ready=opencode_ready,
                 duration_ms=duration_ms,
                 outcome="success",
             )
 
-            # Phase 5: Monitor processes
+            # Phase 6: Monitor processes
             await self.monitor_processes()
 
         except Exception as e:
