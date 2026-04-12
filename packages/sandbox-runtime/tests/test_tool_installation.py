@@ -28,7 +28,8 @@ def _patch_paths(
     tools: Path | str,
     modules: Path | str = "/nonexistent",
     skills: Path | str = "/nonexistent",
-    bin_dir: Path | str = "/nonexistent",
+    bin_src: Path | str = "/nonexistent",
+    bin_dest: Path | str = "/nonexistent",
 ):
     """Patch entrypoint Path() calls to redirect legacy, tools, modules, skills, and bin paths."""
     with patch("sandbox_runtime.entrypoint.Path") as MockPath:
@@ -37,9 +38,9 @@ def _patch_paths(
             .replace("/app/sandbox_runtime/plugins/inspect-plugin.js", str(legacy))
             .replace("/app/sandbox_runtime/tools", str(tools))
             .replace("/app/sandbox_runtime/skills", str(skills))
-            .replace("/app/sandbox_runtime/bin", str(bin_dir))
+            .replace("/app/sandbox_runtime/bin", str(bin_src))
             .replace("/usr/lib/node_modules", str(modules))
-            .replace("/usr/local/bin", str(bin_dir))
+            .replace("/usr/local/bin", str(bin_dest))
         )
         yield
 
@@ -194,28 +195,19 @@ class TestInstallBinScripts:
         """JS scripts in bin/ should be copied to /usr/local/bin/ without .js extension."""
         sup = _make_supervisor()
 
-        bin_src = tmp_path / "app" / "sandbox_runtime" / "bin"
-        bin_src.mkdir(parents=True)
-        (bin_src / "upload-media.js").write_text("#!/usr/bin/env node\n// upload cli")
+        src = tmp_path / "app" / "sandbox_runtime" / "bin"
+        src.mkdir(parents=True)
+        (src / "upload-media.js").write_text("#!/usr/bin/env node\n// upload cli")
 
-        bin_dest = tmp_path / "usr-local-bin"
-        bin_dest.mkdir()
+        dest = tmp_path / "usr-local-bin"
+        dest.mkdir()
 
         with _patch_paths(
-            legacy=tmp_path / "no-legacy",
-            tools=tmp_path / "no-tools",
-            bin_dir=bin_dest,
+            legacy=tmp_path / "no-legacy", tools=tmp_path / "no-tools", bin_src=src, bin_dest=dest
         ):
-            # Point the source dir mock at our temp bin_src via the same replacement
-            with patch("sandbox_runtime.entrypoint.Path") as MockPath:
-                MockPath.side_effect = lambda p: Path(
-                    str(p)
-                    .replace("/app/sandbox_runtime/bin", str(bin_src))
-                    .replace("/usr/local/bin", str(bin_dest))
-                )
-                sup._install_bin_scripts()
+            sup._install_bin_scripts()
 
-        installed = bin_dest / "upload-media"
+        installed = dest / "upload-media"
         assert installed.exists()
         assert installed.read_text() == "#!/usr/bin/env node\n// upload cli"
         assert installed.stat().st_mode & 0o755
@@ -224,41 +216,38 @@ class TestInstallBinScripts:
         """Non-.js files in bin/ should not be installed."""
         sup = _make_supervisor()
 
-        bin_src = tmp_path / "app" / "sandbox_runtime" / "bin"
-        bin_src.mkdir(parents=True)
-        (bin_src / "upload-media.js").write_text("// cli")
-        (bin_src / "README.md").write_text("# docs")
+        src = tmp_path / "app" / "sandbox_runtime" / "bin"
+        src.mkdir(parents=True)
+        (src / "upload-media.js").write_text("// cli")
+        (src / "README.md").write_text("# docs")
 
-        bin_dest = tmp_path / "usr-local-bin"
-        bin_dest.mkdir()
+        dest = tmp_path / "usr-local-bin"
+        dest.mkdir()
 
-        with patch("sandbox_runtime.entrypoint.Path") as MockPath:
-            MockPath.side_effect = lambda p: Path(
-                str(p)
-                .replace("/app/sandbox_runtime/bin", str(bin_src))
-                .replace("/usr/local/bin", str(bin_dest))
-            )
+        with _patch_paths(
+            legacy=tmp_path / "no-legacy", tools=tmp_path / "no-tools", bin_src=src, bin_dest=dest
+        ):
             sup._install_bin_scripts()
 
-        assert (bin_dest / "upload-media").exists()
-        assert not (bin_dest / "README").exists()
+        assert (dest / "upload-media").exists()
+        assert not (dest / "README").exists()
 
     def test_noop_when_bin_dir_missing(self, tmp_path):
         """Should be a no-op when bin/ directory doesn't exist."""
         sup = _make_supervisor()
 
-        bin_dest = tmp_path / "usr-local-bin"
-        bin_dest.mkdir()
+        dest = tmp_path / "usr-local-bin"
+        dest.mkdir()
 
-        with patch("sandbox_runtime.entrypoint.Path") as MockPath:
-            MockPath.side_effect = lambda p: Path(
-                str(p)
-                .replace("/app/sandbox_runtime/bin", str(tmp_path / "no-bin"))
-                .replace("/usr/local/bin", str(bin_dest))
-            )
+        with _patch_paths(
+            legacy=tmp_path / "no-legacy",
+            tools=tmp_path / "no-tools",
+            bin_src=tmp_path / "no-bin",
+            bin_dest=dest,
+        ):
             sup._install_bin_scripts()
 
-        assert list(bin_dest.iterdir()) == []
+        assert list(dest.iterdir()) == []
 
 
 class TestInstallSkills:
