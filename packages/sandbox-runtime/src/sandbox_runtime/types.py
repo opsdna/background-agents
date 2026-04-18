@@ -110,16 +110,16 @@ class McpServerConfig(TypedDict, total=False):
     """Shape of an MCP server config entry, mirroring the TypeScript McpServerConfig type.
 
     Fields match packages/shared/src/types/integrations.ts > McpServerConfig.
-    - stdio servers: set command + env (process environment variables)
+    - local servers: set command + env (process environment variables)
     - remote servers: set url + headers (HTTP request headers, e.g. Authorization)
     """
 
     id: str
     name: str
-    type: str  # "stdio" | "remote"
+    type: str  # "local" | "remote"
     command: list[str]
     url: str
-    env: dict[str, str]  # stdio only — process environment variables
+    env: dict[str, str]  # local only — process environment variables
     headers: dict[str, str]  # remote only — HTTP request headers
     repoScopes: list[str] | None
     enabled: bool

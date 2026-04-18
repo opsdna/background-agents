@@ -35,7 +35,7 @@ class TestResolveMcpServers:
 
     def test_returns_servers_from_session_config(self):
         servers = [
-            {"name": "playwright", "type": "stdio", "command": ["npx", "-y", "@playwright/mcp"]},
+            {"name": "playwright", "type": "local", "command": ["npx", "-y", "@playwright/mcp"]},
             {"name": "remote", "type": "remote", "url": "https://mcp.example.com/sse"},
         ]
         sup = _make_supervisor({"mcp_servers": servers})
@@ -51,7 +51,7 @@ class TestResolveMcpServers:
 class TestInstallMcpPackages:
     def test_extracts_package_from_npx_command(self):
         sup = _make_supervisor()
-        servers = [{"type": "stdio", "command": ["npx", "-y", "@playwright/mcp"]}]
+        servers = [{"type": "local", "command": ["npx", "-y", "@playwright/mcp"]}]
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
             sup._install_mcp_packages(servers)
@@ -61,7 +61,7 @@ class TestInstallMcpPackages:
 
     def test_extracts_package_from_npx_p_flag(self):
         sup = _make_supervisor()
-        servers = [{"type": "stdio", "command": ["npx", "-p", "@scope/pkg", "binary"]}]
+        servers = [{"type": "local", "command": ["npx", "-p", "@scope/pkg", "binary"]}]
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
             sup._install_mcp_packages(servers)
@@ -77,28 +77,28 @@ class TestInstallMcpPackages:
 
     def test_skips_servers_without_npx(self):
         sup = _make_supervisor()
-        servers = [{"type": "stdio", "command": ["node", "server.js"]}]
+        servers = [{"type": "local", "command": ["node", "server.js"]}]
         with patch("subprocess.run") as mock_run:
             sup._install_mcp_packages(servers)
             mock_run.assert_not_called()
 
     def test_skips_servers_without_command(self):
         sup = _make_supervisor()
-        servers = [{"type": "stdio"}]
+        servers = [{"type": "local"}]
         with patch("subprocess.run") as mock_run:
             sup._install_mcp_packages(servers)
             mock_run.assert_not_called()
 
     def test_rejects_invalid_package_names(self):
         sup = _make_supervisor()
-        servers = [{"type": "stdio", "command": ["npx", "../../../etc/passwd"]}]
+        servers = [{"type": "local", "command": ["npx", "../../../etc/passwd"]}]
         with patch("subprocess.run") as mock_run:
             sup._install_mcp_packages(servers)
             mock_run.assert_not_called()
 
     def test_rejects_shell_metacharacters(self):
         sup = _make_supervisor()
-        servers = [{"type": "stdio", "command": ["npx", "pkg; rm -rf /"]}]
+        servers = [{"type": "local", "command": ["npx", "pkg; rm -rf /"]}]
         with patch("subprocess.run") as mock_run:
             sup._install_mcp_packages(servers)
             mock_run.assert_not_called()
@@ -106,8 +106,8 @@ class TestInstallMcpPackages:
     def test_deduplicates_packages(self):
         sup = _make_supervisor()
         servers = [
-            {"type": "stdio", "command": ["npx", "-y", "@playwright/mcp"]},
-            {"type": "stdio", "command": ["npx", "@playwright/mcp"]},
+            {"type": "local", "command": ["npx", "-y", "@playwright/mcp"]},
+            {"type": "local", "command": ["npx", "@playwright/mcp"]},
         ]
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
@@ -127,12 +127,12 @@ class TestInstallMcpPackages:
 
 
 class TestBuildMcpConfig:
-    def test_builds_local_config_from_stdio_server(self):
+    def test_builds_local_config_from_local_server(self):
         sup = _make_supervisor()
         servers = [
             {
                 "name": "playwright",
-                "type": "stdio",
+                "type": "local",
                 "command": ["npx", "-y", "@playwright/mcp"],
                 "env": {"DEBUG": "1"},
             }
@@ -175,13 +175,13 @@ class TestBuildMcpConfig:
 
     def test_skips_servers_without_name(self):
         sup = _make_supervisor()
-        servers = [{"type": "stdio", "command": ["npx", "x"]}]
+        servers = [{"type": "local", "command": ["npx", "x"]}]
         config = sup._build_mcp_config(servers)
         assert config == {}
 
     def test_omits_environment_when_env_is_empty(self):
         sup = _make_supervisor()
-        servers = [{"name": "minimal", "type": "stdio", "command": ["npx", "x"]}]
+        servers = [{"name": "minimal", "type": "local", "command": ["npx", "x"]}]
         config = sup._build_mcp_config(servers)
         assert "environment" not in config["minimal"]
 

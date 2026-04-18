@@ -63,7 +63,7 @@ function createFakeD1(options?: {
 const sampleRow = {
   id: "abc123",
   name: "playwright",
-  type: "stdio",
+  type: "local",
   command: JSON.stringify(["npx", "-y", "@playwright/mcp"]),
   url: null,
   env: JSON.stringify({ DEBUG: "1" }),
@@ -177,10 +177,10 @@ describe("McpServerStore", () => {
   });
 
   describe("create()", () => {
-    it("throws McpServerValidationError for stdio server without command", async () => {
+    it("throws McpServerValidationError for local server without command", async () => {
       const { db } = createFakeD1();
       const store = new McpServerStore(db);
-      await expect(store.create({ name: "test", type: "stdio", enabled: true })).rejects.toThrow(
+      await expect(store.create({ name: "test", type: "local", enabled: true })).rejects.toThrow(
         McpServerValidationError
       );
     });
@@ -196,7 +196,7 @@ describe("McpServerStore", () => {
     it("throws McpServerValidationError (not generic Error) so routes can return 400", async () => {
       const { db } = createFakeD1();
       const store = new McpServerStore(db);
-      const err = await store.create({ name: "x", type: "stdio", enabled: true }).catch((e) => e);
+      const err = await store.create({ name: "x", type: "local", enabled: true }).catch((e) => e);
       expect(err).toBeInstanceOf(McpServerValidationError);
       expect(err).toBeInstanceOf(Error);
     });
@@ -247,7 +247,7 @@ describe("McpServerStore", () => {
     });
 
     it("throws McpServerValidationError when changing type to remote without url", async () => {
-      // sampleRow is a stdio server with no url
+      // sampleRow is a local server with no url
       const { db } = createFakeD1({ firstResult: sampleRow });
       const store = new McpServerStore(db);
       const err = await store.update("abc123", { type: "remote" }).catch((e) => e);
@@ -255,11 +255,11 @@ describe("McpServerStore", () => {
       expect(err.message).toMatch(/require a URL/i);
     });
 
-    it("throws McpServerValidationError when changing type to stdio without command", async () => {
+    it("throws McpServerValidationError when changing type to local without command", async () => {
       // remoteRow is a remote server with no command
       const { db } = createFakeD1({ firstResult: remoteRow });
       const store = new McpServerStore(db);
-      const err = await store.update("def456", { type: "stdio" }).catch((e) => e);
+      const err = await store.update("def456", { type: "local" }).catch((e) => e);
       expect(err).toBeInstanceOf(McpServerValidationError);
       expect(err.message).toMatch(/require a command/i);
     });
@@ -311,15 +311,15 @@ describe("McpServerStore", () => {
       expect(remote.env).toBeUndefined();
     });
 
-    it("returns env (not headers) for stdio servers", async () => {
+    it("returns env (not headers) for local servers", async () => {
       const { db } = createFakeD1({ allResults: [sampleRow] });
       const store = new McpServerStore(db);
       const results = await store.getDecryptedForSession("any", "repo");
       expect(results).toHaveLength(1);
-      const stdio = results[0];
-      expect(stdio.type).toBe("stdio");
-      expect(stdio.env).toEqual({ DEBUG: "1" });
-      expect(stdio.headers).toBeUndefined();
+      const local = results[0];
+      expect(local.type).toBe("local");
+      expect(local.env).toEqual({ DEBUG: "1" });
+      expect(local.headers).toBeUndefined();
     });
   });
 
@@ -351,7 +351,7 @@ describe("McpServerStore", () => {
       const db = createConstraintErrorD1();
       const store = new McpServerStore(db);
       const err = await store
-        .create({ name: "playwright", type: "stdio", command: ["npx", "x"], enabled: true })
+        .create({ name: "playwright", type: "local", command: ["npx", "x"], enabled: true })
         .catch((e) => e);
       expect(err).toBeInstanceOf(McpServerValidationError);
       expect(err.message).toMatch(/already exists/);

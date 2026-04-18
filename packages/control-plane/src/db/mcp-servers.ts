@@ -57,14 +57,14 @@ function safeJsonParseEnv(raw: string): Record<string, string> {
 
 function rowToConfig(row: McpServerRow, payload: Record<string, string>): McpServerConfig {
   // The DB `env` column stores different things depending on server type:
-  //   stdio  → process environment variables  → McpServerConfig.env
+  //   local  → process environment variables  → McpServerConfig.env
   //   remote → HTTP request headers           → McpServerConfig.headers
   const envOrHeaders: Pick<McpServerConfig, "env" | "headers"> =
     row.type === "remote" ? { headers: payload } : { env: payload };
   return {
     id: row.id,
     name: row.name,
-    type: row.type as "stdio" | "remote",
+    type: row.type as "local" | "remote",
     command: safeJsonParseCommand(row.command),
     url: row.url ?? undefined,
     ...envOrHeaders,
@@ -83,10 +83,10 @@ function rowToMetadata(row: McpServerRow): McpServerMetadata {
   return {
     id: row.id,
     name: row.name,
-    type: row.type as "stdio" | "remote",
+    type: row.type as "local" | "remote",
     command: safeJsonParseCommand(row.command),
     url: row.url ?? undefined,
-    hasEnv: row.type === "stdio" && hasCredentials,
+    hasEnv: row.type === "local" && hasCredentials,
     hasHeaders: row.type === "remote" && hasCredentials,
     repoScopes: parseRepoScopes(row.repo_scope),
     enabled: row.enabled === 1,
@@ -208,15 +208,15 @@ export class McpServerStore {
     const id = generateId();
     const now = Date.now();
 
-    if (config.type === "stdio" && (!config.command || config.command.length === 0)) {
-      throw new McpServerValidationError("stdio MCP servers require a command");
+    if (config.type === "local" && (!config.command || config.command.length === 0)) {
+      throw new McpServerValidationError("Local MCP servers require a command");
     }
     if (config.type === "remote" && !config.url) {
       throw new McpServerValidationError("remote MCP servers require a URL");
     }
 
     // For remote servers, the DB `env` column stores HTTP headers (McpServerConfig.headers).
-    // For stdio servers, it stores process environment variables (McpServerConfig.env).
+    // For local servers, it stores process environment variables (McpServerConfig.env).
     const encryptedEnv = await this.encryptEnv(
       config.type === "remote" ? (config.headers ?? {}) : (config.env ?? {})
     );
@@ -281,15 +281,15 @@ export class McpServerStore {
     };
     // Validate the merged result — catches cases where type is changed without
     // updating the corresponding command/url field (same rules as create()).
-    if (merged.type === "stdio" && (!merged.command || merged.command.length === 0)) {
-      throw new McpServerValidationError("stdio MCP servers require a command");
+    if (merged.type === "local" && (!merged.command || merged.command.length === 0)) {
+      throw new McpServerValidationError("Local MCP servers require a command");
     }
     if (merged.type === "remote" && !merged.url) {
       throw new McpServerValidationError("remote MCP servers require a URL");
     }
 
     const now = Date.now();
-    // For remote servers, the DB `env` column stores HTTP headers; for stdio, process env.
+    // For remote servers, the DB `env` column stores HTTP headers; for local, process env.
     const encryptedEnv = await this.encryptEnv(
       merged.type === "remote" ? (merged.headers ?? {}) : (merged.env ?? {})
     );

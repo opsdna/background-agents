@@ -65,10 +65,10 @@ export type SandboxGlobalConfig = IntegrationSettingsMap["sandbox"]["global"];
 export interface McpServerConfig {
   id: string;
   name: string;
-  type: "stdio" | "remote";
+  type: "local" | "remote";
   command?: string[];
   url?: string;
-  /** Process environment variables — only applicable for stdio servers. */
+  /** Process environment variables — only applicable for local servers. */
   env?: Record<string, string>;
   /**
    * HTTP request headers — only applicable for remote servers.
@@ -88,10 +88,10 @@ export interface McpServerConfig {
 export interface McpServerMetadata {
   id: string;
   name: string;
-  type: "stdio" | "remote";
+  type: "local" | "remote";
   command?: string[];
   url?: string;
-  /** True if the server has environment variables configured (stdio only). */
+  /** True if the server has environment variables configured (local only). */
   hasEnv: boolean;
   /** True if the server has HTTP headers configured (remote only). */
   hasHeaders: boolean;

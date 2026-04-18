@@ -33,7 +33,7 @@ type ScopeMode = "global" | "selected";
 
 type FormState = {
   name: string;
-  type: "stdio" | "remote";
+  type: "local" | "remote";
   command: string;
   url: string;
   env: string;
@@ -154,15 +154,15 @@ function McpServerForm({
             Remote
           </button>
           <button
-            onClick={() => setForm({ ...form, type: "stdio" })}
+            onClick={() => setForm({ ...form, type: "local" })}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-sm border transition ${
-              form.type === "stdio"
+              form.type === "local"
                 ? "border-foreground/30 text-foreground bg-muted"
                 : "border-border text-muted-foreground hover:text-foreground"
             }`}
           >
             <TerminalIcon className="w-3.5 h-3.5" />
-            Stdio
+            Local
           </button>
         </div>
       </div>
@@ -344,8 +344,8 @@ export function McpServersSettings() {
       toast.error("URL is required for remote servers");
       return;
     }
-    if (form.type === "stdio" && !form.command.trim()) {
-      toast.error("Command is required for stdio servers");
+    if (form.type === "local" && !form.command.trim()) {
+      toast.error("Command is required for local servers");
       return;
     }
 

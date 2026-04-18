@@ -72,8 +72,8 @@ async function handleCreateMcpServer(
   if (!body.name || typeof body.name !== "string") {
     return error("name is required", 400);
   }
-  if (body.type !== "stdio" && body.type !== "remote") {
-    return error("type must be 'stdio' or 'remote'", 400);
+  if (body.type !== "local" && body.type !== "remote") {
+    return error("type must be 'local' or 'remote'", 400);
   }
 
   try {

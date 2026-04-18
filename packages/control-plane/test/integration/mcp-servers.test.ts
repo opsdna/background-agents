@@ -14,7 +14,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 interface McpServerMetadata {
   id: string;
   name: string;
-  type: "stdio" | "remote";
+  type: "local" | "remote";
   command?: string[];
   url?: string;
   hasEnv: boolean;
@@ -27,14 +27,14 @@ describe("MCP Servers API", () => {
   beforeEach(cleanD1Tables);
 
   describe("POST /mcp-servers", () => {
-    it("creates a stdio server", async () => {
+    it("creates a local server", async () => {
       const headers = await authHeaders();
       const response = await SELF.fetch("https://test.local/mcp-servers", {
         method: "POST",
         headers,
         body: JSON.stringify({
           name: "playwright",
-          type: "stdio",
+          type: "local",
           command: ["npx", "-y", "@playwright/mcp"],
           env: { DEBUG: "1" },
         }),
@@ -42,7 +42,7 @@ describe("MCP Servers API", () => {
       expect(response.status).toBe(201);
       const body = await response.json<McpServerMetadata>();
       expect(body.name).toBe("playwright");
-      expect(body.type).toBe("stdio");
+      expect(body.type).toBe("local");
       expect(body.command).toEqual(["npx", "-y", "@playwright/mcp"]);
       expect(body.hasEnv).toBe(true);
       expect(body.enabled).toBe(true);
@@ -77,7 +77,7 @@ describe("MCP Servers API", () => {
       const response = await SELF.fetch("https://test.local/mcp-servers", {
         method: "POST",
         headers,
-        body: JSON.stringify({ type: "stdio", command: ["npx", "x"] }),
+        body: JSON.stringify({ type: "local", command: ["npx", "x"] }),
       });
       expect(response.status).toBe(400);
     });
@@ -92,12 +92,12 @@ describe("MCP Servers API", () => {
       expect(response.status).toBe(400);
     });
 
-    it("returns 400 for stdio without command", async () => {
+    it("returns 400 for local without command", async () => {
       const headers = await authHeaders();
       const response = await SELF.fetch("https://test.local/mcp-servers", {
         method: "POST",
         headers,
-        body: JSON.stringify({ name: "test", type: "stdio" }),
+        body: JSON.stringify({ name: "test", type: "local" }),
       });
       expect(response.status).toBe(400);
     });
@@ -164,7 +164,7 @@ describe("MCP Servers API", () => {
         headers,
         body: JSON.stringify({
           name: "server-b",
-          type: "stdio",
+          type: "local",
           command: ["npx", "x"],
         }),
       });
@@ -285,11 +285,11 @@ describe("MCP Servers API", () => {
       });
       const created = await createRes.json<McpServerMetadata>();
 
-      // Change to stdio without providing command
+      // Change to local without providing command
       const response = await SELF.fetch(`https://test.local/mcp-servers/${created.id}`, {
         method: "PUT",
         headers,
-        body: JSON.stringify({ type: "stdio" }),
+        body: JSON.stringify({ type: "local" }),
       });
       expect(response.status).toBe(400);
     });
