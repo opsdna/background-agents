@@ -217,7 +217,12 @@ class TestFromRepoImage:
 
     @pytest.mark.asyncio
     async def test_start_script_failure_is_fatal(self, repo_image_env):
-        """Repo-image boot should fail fast when start hook fails."""
+        """Repo-image boot should fail fast when start hook fails.
+
+        In repo_image mode, start_opencode is fired eagerly (before the
+        hook runs) to overlap with git sync.  The key invariant is that
+        the bridge is never started and the fatal error is reported.
+        """
         supervisor = _make_supervisor(repo_image_env)
 
         supervisor._update_existing_repo = AsyncMock(return_value=True)
@@ -233,7 +238,6 @@ class TestFromRepoImage:
             await supervisor.run()
 
         supervisor._report_fatal_error.assert_called_once()
-        supervisor.start_opencode.assert_not_called()
         supervisor.start_bridge.assert_not_called()
 
 
