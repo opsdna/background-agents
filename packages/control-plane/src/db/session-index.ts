@@ -16,6 +16,10 @@ export interface SessionEntry {
   automationRunId?: string | null;
   scmLogin?: string | null;
   userId?: string | null;
+  /** Display name from the linked users row (null when user_id is null or unlinked). Populated by list(). */
+  creatorDisplayName?: string | null;
+  /** Avatar URL from the linked users row (null when user_id is null or unlinked). Populated by list(). */
+  creatorAvatarUrl?: string | null;
   totalCost?: number;
   activeDurationMs?: number;
   messageCount?: number;
@@ -46,6 +50,9 @@ interface SessionRow {
   pr_count: number;
   created_at: number;
   updated_at: number;
+  // Populated only when the query includes a LEFT JOIN to users.
+  creator_display_name?: string | null;
+  creator_avatar_url?: string | null;
 }
 
 export interface ListSessionsOptions {
@@ -80,6 +87,8 @@ function toEntry(row: SessionRow): SessionEntry {
     automationRunId: row.automation_run_id,
     scmLogin: row.scm_login,
     userId: row.user_id,
+    creatorDisplayName: row.creator_display_name ?? null,
+    creatorAvatarUrl: row.creator_avatar_url ?? null,
     totalCost: row.total_cost,
     activeDurationMs: row.active_duration_ms,
     messageCount: row.message_count,
@@ -165,9 +174,17 @@ export class SessionIndexStore {
 
     const total = countResult?.count ?? 0;
 
-    // Get paginated results
+    // Get paginated results, enriched with creator display_name / avatar_url from
+    // the unified users table. LEFT JOIN keeps rows with NULL or orphan user_id.
     const result = await this.db
-      .prepare(`SELECT * FROM sessions ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
+      .prepare(
+        `SELECT sessions.*, u.display_name AS creator_display_name, u.avatar_url AS creator_avatar_url
+         FROM sessions
+         LEFT JOIN users u ON sessions.user_id = u.id
+         ${where}
+         ORDER BY sessions.updated_at DESC
+         LIMIT ? OFFSET ?`
+      )
       .bind(...params, limit, offset)
       .all<SessionRow>();
 

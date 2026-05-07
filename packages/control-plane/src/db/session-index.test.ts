@@ -24,13 +24,23 @@ type SessionRow = {
   pr_count: number;
   created_at: number;
   updated_at: number;
+  creator_display_name?: string | null;
+  creator_avatar_url?: string | null;
+};
+
+type UserRow = {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
 };
 
 const QUERY_PATTERNS = {
   INSERT_SESSION: /^INSERT OR IGNORE INTO sessions/,
   SELECT_BY_ID: /^SELECT \* FROM sessions WHERE id = \?$/,
   SELECT_COUNT: /^SELECT COUNT\(\*\) as count FROM sessions\b/,
-  SELECT_LIST: /^SELECT \* FROM sessions\b.*ORDER BY updated_at DESC LIMIT/,
+  // List query LEFT JOINs users to surface creator display_name / avatar_url.
+  SELECT_LIST:
+    /^SELECT sessions\.\*, u\.display_name AS creator_display_name, u\.avatar_url AS creator_avatar_url\s+FROM sessions\s+LEFT JOIN users u ON sessions\.user_id = u\.id\b.*ORDER BY sessions\.updated_at DESC LIMIT/,
   UPDATE_STATUS: /^UPDATE sessions SET status = \?/,
   UPDATE_UPDATED_AT: /^UPDATE sessions SET updated_at = \?/,
   UPDATE_TITLE: /^UPDATE sessions SET title = \?/,
@@ -48,6 +58,12 @@ function normalizeQuery(query: string): string {
 
 class FakeD1Database {
   private rows = new Map<string, SessionRow>();
+  private users = new Map<string, UserRow>();
+
+  /** Test helper: seed a users row so list() can join against it. */
+  seedUser(user: UserRow): void {
+    this.users.set(user.id, user);
+  }
 
   prepare(query: string) {
     return new FakePreparedStatement(this, query);
@@ -102,7 +118,7 @@ class FakeD1Database {
       const filtered = this.applyWhereConditions(normalized, whereArgs);
       const sorted = filtered.sort((a, b) => b.updated_at - a.updated_at);
       const paged = sorted.slice(offset, offset + limit);
-      return paged;
+      return paged.map((row) => this.joinUser(row));
     }
 
     if (QUERY_PATTERNS.SELECT_BY_PARENT.test(normalized)) {
@@ -114,6 +130,16 @@ class FakeD1Database {
     }
 
     throw new Error(`Unexpected all() query: ${query}`);
+  }
+
+  /** Simulate the LEFT JOIN to users in the list() query. */
+  private joinUser(row: SessionRow): SessionRow {
+    const user = row.user_id ? this.users.get(row.user_id) : undefined;
+    return {
+      ...row,
+      creator_display_name: user?.display_name ?? null,
+      creator_avatar_url: user?.avatar_url ?? null,
+    };
   }
 
   run(query: string, args: unknown[]) {
@@ -358,6 +384,9 @@ describe("SessionIndexStore", () => {
         automationRunId: null,
         scmLogin: null,
         userId: null,
+        // get() does not LEFT JOIN users; toEntry coerces missing columns to null.
+        creatorDisplayName: null,
+        creatorAvatarUrl: null,
         totalCost: 0,
         activeDurationMs: 0,
         messageCount: 0,
@@ -479,6 +508,38 @@ describe("SessionIndexStore", () => {
       const page3 = await store.list({ limit: 2, offset: 4 });
       expect(page3.sessions).toHaveLength(1);
       expect(page3.hasMore).toBe(false);
+    });
+
+    it("populates creatorDisplayName and creatorAvatarUrl from joined users row", async () => {
+      db.seedUser({
+        id: "u-1",
+        display_name: "Alice",
+        avatar_url: "https://example.com/alice.png",
+      });
+      await store.create(makeSession({ id: "s-with-user", userId: "u-1" }));
+
+      const result = await store.list();
+      const row = result.sessions.find((s) => s.id === "s-with-user");
+      expect(row?.creatorDisplayName).toBe("Alice");
+      expect(row?.creatorAvatarUrl).toBe("https://example.com/alice.png");
+    });
+
+    it("returns null creator fields when userId is null", async () => {
+      await store.create(makeSession({ id: "s-no-user" }));
+
+      const result = await store.list();
+      const row = result.sessions.find((s) => s.id === "s-no-user");
+      expect(row?.creatorDisplayName).toBeNull();
+      expect(row?.creatorAvatarUrl).toBeNull();
+    });
+
+    it("returns null creator fields when userId has no matching users row", async () => {
+      await store.create(makeSession({ id: "s-orphan", userId: "u-missing" }));
+
+      const result = await store.list();
+      const row = result.sessions.find((s) => s.id === "s-orphan");
+      expect(row?.creatorDisplayName).toBeNull();
+      expect(row?.creatorAvatarUrl).toBeNull();
     });
   });
 

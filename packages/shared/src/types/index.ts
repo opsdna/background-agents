@@ -77,6 +77,14 @@ export interface Session {
   spawnDepth: number;
   createdAt: number;
   updatedAt: number;
+  /** Canonical creator (users.id). Populated on session list responses. */
+  userId?: string | null;
+  /** Provider login of the creator (e.g. GitHub username). */
+  scmLogin?: string | null;
+  /** Display name of the creator (joined from users table). Populated on list responses. */
+  creatorDisplayName?: string | null;
+  /** Avatar URL of the creator (joined from users table). Populated on list responses. */
+  creatorAvatarUrl?: string | null;
 }
 
 // Message in a session

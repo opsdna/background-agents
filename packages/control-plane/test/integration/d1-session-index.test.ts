@@ -489,4 +489,181 @@ describe("D1 SessionIndexStore", () => {
       expect(session!.userId).toBeNull();
     });
   });
+
+  describe("creator identity (LEFT JOIN users)", () => {
+    async function seedUser(
+      id: string,
+      displayName: string | null,
+      avatarUrl: string | null
+    ): Promise<void> {
+      const now = Date.now();
+      await env.DB.prepare(
+        "INSERT INTO users (id, display_name, email, avatar_url, created_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?)"
+      )
+        .bind(id, displayName, avatarUrl, now, now)
+        .run();
+    }
+
+    it("list() populates creatorDisplayName from users.display_name", async () => {
+      const store = new SessionIndexStore(env.DB);
+      const now = Date.now();
+
+      await seedUser("u-alice", "Alice", null);
+      await store.create({
+        id: "s-alice",
+        title: null,
+        repoOwner: "acme",
+        repoName: "web-app",
+        model: "anthropic/claude-haiku-4-5",
+        reasoningEffort: null,
+        baseBranch: null,
+        status: "created",
+        userId: "u-alice",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await store.list({});
+      const row = result.sessions.find((s) => s.id === "s-alice");
+      expect(row).toBeDefined();
+      expect(row!.creatorDisplayName).toBe("Alice");
+    });
+
+    it("list() populates creatorAvatarUrl from users.avatar_url", async () => {
+      const store = new SessionIndexStore(env.DB);
+      const now = Date.now();
+
+      await seedUser("u-bob", "Bob", "https://example.com/bob.png");
+      await store.create({
+        id: "s-bob",
+        title: null,
+        repoOwner: "acme",
+        repoName: "web-app",
+        model: "anthropic/claude-haiku-4-5",
+        reasoningEffort: null,
+        baseBranch: null,
+        status: "created",
+        userId: "u-bob",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await store.list({});
+      const row = result.sessions.find((s) => s.id === "s-bob");
+      expect(row).toBeDefined();
+      expect(row!.creatorAvatarUrl).toBe("https://example.com/bob.png");
+    });
+
+    it("list() returns null creator fields when user_id is NULL", async () => {
+      const store = new SessionIndexStore(env.DB);
+      const now = Date.now();
+
+      await store.create({
+        id: "s-orphan",
+        title: null,
+        repoOwner: "acme",
+        repoName: "web-app",
+        model: "anthropic/claude-haiku-4-5",
+        reasoningEffort: null,
+        baseBranch: null,
+        status: "created",
+        // No userId — pre-migration row
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await store.list({});
+      const row = result.sessions.find((s) => s.id === "s-orphan");
+      expect(row).toBeDefined();
+      expect(row!.creatorDisplayName).toBeNull();
+      expect(row!.creatorAvatarUrl).toBeNull();
+    });
+
+    it("list() returns null creator fields when user_id has no matching users row", async () => {
+      const store = new SessionIndexStore(env.DB);
+      const now = Date.now();
+
+      // No users row seeded for "u-missing"
+      await store.create({
+        id: "s-orphan-fk",
+        title: null,
+        repoOwner: "acme",
+        repoName: "web-app",
+        model: "anthropic/claude-haiku-4-5",
+        reasoningEffort: null,
+        baseBranch: null,
+        status: "created",
+        userId: "u-missing",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await store.list({});
+      const row = result.sessions.find((s) => s.id === "s-orphan-fk");
+      expect(row).toBeDefined();
+      expect(row!.creatorDisplayName).toBeNull();
+      expect(row!.creatorAvatarUrl).toBeNull();
+    });
+
+    it("list() returns null creator fields when users.display_name and avatar_url are NULL", async () => {
+      const store = new SessionIndexStore(env.DB);
+      const now = Date.now();
+
+      await seedUser("u-bare", null, null);
+      await store.create({
+        id: "s-bare",
+        title: null,
+        repoOwner: "acme",
+        repoName: "web-app",
+        model: "anthropic/claude-haiku-4-5",
+        reasoningEffort: null,
+        baseBranch: null,
+        status: "created",
+        userId: "u-bare",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await store.list({});
+      const row = result.sessions.find((s) => s.id === "s-bare");
+      expect(row).toBeDefined();
+      expect(row!.creatorDisplayName).toBeNull();
+      expect(row!.creatorAvatarUrl).toBeNull();
+    });
+
+    it("list() preserves existing fields alongside the new creator fields", async () => {
+      const store = new SessionIndexStore(env.DB);
+      const now = Date.now();
+
+      await seedUser("u-carol", "Carol", "https://example.com/carol.png");
+      await store.create({
+        id: "s-carol",
+        title: "Carol's session",
+        repoOwner: "acme",
+        repoName: "api",
+        model: "anthropic/claude-sonnet-4-6",
+        reasoningEffort: "high",
+        baseBranch: "main",
+        status: "active",
+        userId: "u-carol",
+        scmLogin: "carol",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await store.list({});
+      const row = result.sessions.find((s) => s.id === "s-carol");
+      expect(row).toMatchObject({
+        id: "s-carol",
+        title: "Carol's session",
+        repoOwner: "acme",
+        repoName: "api",
+        status: "active",
+        userId: "u-carol",
+        scmLogin: "carol",
+        creatorDisplayName: "Carol",
+        creatorAvatarUrl: "https://example.com/carol.png",
+      });
+    });
+  });
 });
