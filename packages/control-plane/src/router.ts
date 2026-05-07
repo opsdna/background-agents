@@ -675,6 +675,14 @@ export async function handleRequest(
 
 // Session handlers
 
+/** Provider values accepted by the `mineProvider` query parameter on GET /sessions. */
+const SUPPORTED_MINE_PROVIDERS = ["github", "slack", "linear"] as const;
+type SupportedMineProvider = (typeof SUPPORTED_MINE_PROVIDERS)[number];
+
+function isSupportedMineProvider(value: string): value is SupportedMineProvider {
+  return (SUPPORTED_MINE_PROVIDERS as readonly string[]).includes(value);
+}
+
 async function handleListSessions(
   request: Request,
   env: Env,
@@ -697,8 +705,36 @@ async function handleListSessions(
     return error("Invalid excludeStatus", 400);
   }
 
+  // "Filter to the authenticated user" — server-trusted: the BFF derives identity
+  // from the NextAuth session and forwards mineScmUserId+mineProvider. The browser
+  // never sets these directly (they're not on the BFF's allowlist).
+  const mineScmUserId = url.searchParams.get("mineScmUserId");
+  const mineProvider = url.searchParams.get("mineProvider");
+
+  if (mineScmUserId !== null && !mineProvider) {
+    return error("mineProvider is required when mineScmUserId is set", 400);
+  }
+  if (mineProvider !== null && !mineScmUserId) {
+    return error("mineScmUserId is required when mineProvider is set", 400);
+  }
+  if (mineProvider && !isSupportedMineProvider(mineProvider)) {
+    return error("Unsupported mineProvider", 400);
+  }
+
+  let userId: string | undefined;
+  if (mineScmUserId && mineProvider) {
+    // Read-only resolve — must NOT auto-create users from a list query.
+    const userStore = new UserStore(env.DB);
+    const identity = await userStore.getIdentity(mineProvider, mineScmUserId);
+    if (!identity) {
+      // Identity not yet canonicalized → empty page (spec E2).
+      return json({ sessions: [], total: 0, hasMore: false });
+    }
+    userId = identity.userId;
+  }
+
   const store = new SessionIndexStore(env.DB);
-  const result = await store.list({ status, excludeStatus, limit, offset });
+  const result = await store.list({ status, excludeStatus, userId, limit, offset });
 
   return json({
     sessions: result.sessions,

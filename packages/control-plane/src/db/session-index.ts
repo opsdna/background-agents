@@ -60,6 +60,8 @@ export interface ListSessionsOptions {
   excludeStatus?: SessionStatus;
   repoOwner?: string;
   repoName?: string;
+  /** Filter to sessions whose canonical creator (sessions.user_id) matches. */
+  userId?: string;
   limit?: number;
   offset?: number;
 }
@@ -139,7 +141,7 @@ export class SessionIndexStore {
   }
 
   async list(options: ListSessionsOptions = {}): Promise<ListSessionsResult> {
-    const { status, excludeStatus, repoOwner, repoName, limit = 50, offset = 0 } = options;
+    const { status, excludeStatus, repoOwner, repoName, userId, limit = 50, offset = 0 } = options;
 
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -162,6 +164,11 @@ export class SessionIndexStore {
     if (repoName) {
       conditions.push("repo_name = ?");
       params.push(repoName.toLowerCase());
+    }
+
+    if (userId) {
+      conditions.push("user_id = ?");
+      params.push(userId);
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

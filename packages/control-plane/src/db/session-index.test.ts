@@ -311,6 +311,11 @@ class FakeD1Database {
         const nameVal = args[argIdx++] as string;
         rows = rows.filter((r) => r.repo_name === nameVal);
       }
+
+      if (conditions.includes("user_id = ?")) {
+        const userIdVal = args[argIdx++] as string;
+        rows = rows.filter((r) => r.user_id === userIdVal);
+      }
     }
 
     return rows;
@@ -540,6 +545,61 @@ describe("SessionIndexStore", () => {
       const row = result.sessions.find((s) => s.id === "s-orphan");
       expect(row?.creatorDisplayName).toBeNull();
       expect(row?.creatorAvatarUrl).toBeNull();
+    });
+
+    it("filters by userId when set, returning only sessions whose user_id matches", async () => {
+      await store.create(makeSession({ id: "s-alice-1", userId: "u-alice", updatedAt: 3000 }));
+      await store.create(makeSession({ id: "s-alice-2", userId: "u-alice", updatedAt: 2000 }));
+      await store.create(makeSession({ id: "s-bob-1", userId: "u-bob", updatedAt: 1000 }));
+      await store.create(makeSession({ id: "s-orphan", updatedAt: 500 }));
+
+      const result = await store.list({ userId: "u-alice" });
+      expect(result.sessions.map((s) => s.id)).toEqual(["s-alice-1", "s-alice-2"]);
+      expect(result.total).toBe(2);
+    });
+
+    it("excludes user_id IS NULL sessions when userId filter is applied (spec AC 9)", async () => {
+      // Pre-migration session: scmLogin matches but user_id is null
+      await store.create(
+        makeSession({ id: "s-pre-migration", scmLogin: "alice", updatedAt: 2000 })
+      );
+      // Linked session
+      await store.create(
+        makeSession({ id: "s-linked", userId: "u-alice", scmLogin: "alice", updatedAt: 1000 })
+      );
+
+      const result = await store.list({ userId: "u-alice" });
+      expect(result.sessions.map((s) => s.id)).toEqual(["s-linked"]);
+      expect(result.total).toBe(1);
+    });
+
+    it("combines userId with excludeStatus", async () => {
+      await store.create(
+        makeSession({ id: "active", userId: "u-1", status: "active", updatedAt: 3000 })
+      );
+      await store.create(
+        makeSession({ id: "archived", userId: "u-1", status: "archived", updatedAt: 2000 })
+      );
+      await store.create(
+        makeSession({ id: "other-user-active", userId: "u-2", status: "active", updatedAt: 1000 })
+      );
+
+      const result = await store.list({ userId: "u-1", excludeStatus: "archived" });
+      expect(result.sessions.map((s) => s.id)).toEqual(["active"]);
+      expect(result.total).toBe(1);
+    });
+
+    it("paginates within the user-scoped result set", async () => {
+      for (let i = 0; i < 5; i++) {
+        await store.create(makeSession({ id: `s${i}`, userId: "u-1", updatedAt: i * 1000 }));
+      }
+      // Other users' sessions should not affect pagination of u-1's slice
+      await store.create(makeSession({ id: "other-1", userId: "u-other", updatedAt: 99999 }));
+
+      const page = await store.list({ userId: "u-1", limit: 2, offset: 1 });
+      expect(page.sessions).toHaveLength(2);
+      expect(page.total).toBe(5);
+      expect(page.hasMore).toBe(true);
     });
   });
 

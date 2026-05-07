@@ -39,4 +39,24 @@ describe("buildControlPlanePath", () => {
       buildControlPlanePath("/sessions", searchParams, SESSION_CONTROL_PLANE_QUERY_PARAMS)
     ).toBe("/sessions?status=running&excludeStatus=archived");
   });
+
+  it("does NOT forward mineScmUserId or mineProvider from clients (server-trusted only)", () => {
+    // mineScmUserId / mineProvider are inserted by the BFF after server-side
+    // identity derivation. Anything supplied by the client must be stripped.
+    const searchParams = new URLSearchParams(
+      "mineScmUserId=99999&mineProvider=facebook&excludeStatus=archived"
+    );
+
+    expect(
+      buildControlPlanePath("/sessions", searchParams, SESSION_CONTROL_PLANE_QUERY_PARAMS)
+    ).toBe("/sessions?excludeStatus=archived");
+  });
+
+  it("does NOT forward the browser-facing mine flag (BFF translates it)", () => {
+    const searchParams = new URLSearchParams("mine=true&limit=50");
+
+    expect(
+      buildControlPlanePath("/sessions", searchParams, SESSION_CONTROL_PLANE_QUERY_PARAMS)
+    ).toBe("/sessions?limit=50");
+  });
 });

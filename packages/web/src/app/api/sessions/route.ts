@@ -25,9 +25,17 @@ export async function GET(request: NextRequest) {
     SESSION_CONTROL_PLANE_QUERY_PARAMS
   );
 
+  // Server-trusted "filter to current user": when the client opts in via
+  // `?mine=true`, derive identity from the NextAuth session and append the
+  // canonical-resolution params for the control plane. The buildControlPlanePath
+  // allowlist already strips any client-supplied mineScmUserId/mineProvider —
+  // identity is *only* what the server derives here.
+  const mineFlag = request.nextUrl.searchParams.get("mine") === "true";
+  const finalPath = mineFlag && session.user?.id ? appendMineParams(path, session.user.id) : path;
+
   try {
     const fetchStart = Date.now();
-    const response = await controlPlaneFetch(path);
+    const response = await controlPlaneFetch(finalPath);
     const fetchMs = Date.now() - fetchStart;
     const data = await response.json();
     const totalMs = Date.now() - routeStart;
@@ -41,6 +49,13 @@ export async function GET(request: NextRequest) {
     console.error("Failed to fetch sessions:", error);
     return NextResponse.json({ error: "Failed to fetch sessions" }, { status: 500 });
   }
+}
+
+function appendMineParams(path: string, scmUserId: string): string {
+  const sep = path.includes("?") ? "&" : "?";
+  // session.user.id is the GitHub numeric ID for web NextAuth sessions; the
+  // control plane resolves (provider, providerUserId) via UserStore.getIdentity.
+  return `${path}${sep}mineScmUserId=${encodeURIComponent(scmUserId)}&mineProvider=github`;
 }
 
 export async function POST(request: NextRequest) {
