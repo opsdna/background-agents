@@ -76,7 +76,7 @@ def build_modal_create_kwargs(
     *,
     image: modal.Image,
     secrets: list[Any],
-    timeout: int,
+    timeout_seconds: int,
     env_vars: dict[str, str],
 ) -> dict[str, Any]:
     launch_env_vars = dict(env_vars)
@@ -93,7 +93,7 @@ def build_modal_create_kwargs(
         "image": image,
         "app": app,
         "secrets": secrets,
-        "timeout": timeout,
+        "timeout": timeout_seconds,
         "workdir": "/workspace",
         "env": launch_env_vars,
     }

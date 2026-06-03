@@ -40,7 +40,7 @@ from ..app import (
 )
 from ..auth import generate_internal_token
 from ..log_config import get_logger
-from ..sandbox.settings import DEFAULT_IMAGE_PROFILE, DOCKER_IMAGE_PROFILE, SandboxImageProfile
+from ..sandbox.settings import DEFAULT_IMAGE_PROFILE, parse_sandbox_image_profile
 
 log = get_logger("image_builder")
 
@@ -50,16 +50,8 @@ CALLBACK_BACKOFF_BASE = 2  # seconds: 2, 4, 8
 
 # Build log errors are surfaced through callbacks; keep them concise.
 BUILD_FAILURE_MESSAGE_MAX_CHARS = 500
-IMAGE_PROFILES = frozenset({DEFAULT_IMAGE_PROFILE, DOCKER_IMAGE_PROFILE})
-
 _SETUP_FAILURE_EVENTS = {"setup.failed", "setup.timeout", "setup.error"}
 _SUPERVISOR_FAILURE_EVENTS = {"supervisor.error", "supervisor.fatal"}
-
-
-def _parse_image_profile(value: object) -> SandboxImageProfile:
-    if value in IMAGE_PROFILES:
-        return value
-    raise ValueError(f"Invalid image profile: {value!r}")
 
 
 class BuildError(Exception):
@@ -283,7 +275,7 @@ async def build_repo_image(
         return
 
     try:
-        resolved_image_profile = _parse_image_profile(image_profile)
+        resolved_image_profile = parse_sandbox_image_profile(image_profile)
     except ValueError as e:
         log.error("build.invalid_image_profile", build_id=build_id, error=str(e))
         return
@@ -593,7 +585,7 @@ async def rebuild_repo_images():
             repo_owner = repo.get("repoOwner", "")
             repo_name = repo.get("repoName", "")
             try:
-                image_profile = _parse_image_profile(
+                image_profile = parse_sandbox_image_profile(
                     repo.get("imageProfile") or DEFAULT_IMAGE_PROFILE
                 )
             except ValueError as e:

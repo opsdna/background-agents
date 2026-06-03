@@ -351,7 +351,7 @@ class SandboxManager:
             launch_options,
             image=image,
             secrets=[llm_secrets],
-            timeout=config.timeout_seconds,
+            timeout_seconds=config.timeout_seconds,
             env_vars=env_vars,
         )
 
@@ -447,7 +447,7 @@ class SandboxManager:
             launch_options,
             image=select_base_image(launch_options.image_profile),
             secrets=[],
-            timeout=BUILD_TIMEOUT_SECONDS,
+            timeout_seconds=BUILD_TIMEOUT_SECONDS,
             env_vars=env_vars,
         )
 
@@ -689,7 +689,7 @@ class SandboxManager:
             launch_options,
             image=image,
             secrets=[llm_secrets],
-            timeout=timeout_seconds,
+            timeout_seconds=timeout_seconds,
             env_vars=env_vars,
         )
 

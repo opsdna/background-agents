@@ -39,6 +39,11 @@ export class RepoImageBuildPlanner {
     const sandboxSettings = (await resolveSandboxSettingsForRepos(this.db, repos)).map((settings) =>
       normalizeSandboxRuntimeSettings(settings)
     );
+    if (sandboxSettings.length !== repos.length) {
+      throw new Error(
+        `resolveSandboxSettingsForRepos returned ${sandboxSettings.length} settings for ${repos.length} repos`
+      );
+    }
     return repos.map((repo, index) => ({
       repo,
       sandboxSettings: sandboxSettings[index],
