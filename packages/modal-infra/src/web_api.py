@@ -156,7 +156,7 @@ async def api_create_sandbox(
 
         snapshot_id = request.get("snapshot_id")
         repo_image_id = request.get("repo_image_id") or None
-        clone_token = _resolve_clone_token() if snapshot_id or repo_image_id else None
+        clone_token = _resolve_clone_token() if snapshot_id else None
 
         session_config = SessionConfig(
             session_id=request.get("session_id"),

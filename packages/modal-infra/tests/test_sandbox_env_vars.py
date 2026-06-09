@@ -328,10 +328,10 @@ def _fake_sandbox_create(captured):
     return fake_create_aio
 
 
-# Note: fresh sandboxes never receive SCM tokens in the environment. Legacy
-# snapshot/repo-image and image-build paths still receive VCS_CLONE_TOKEN as a
-# fallback because they may run code built before the credential-helper
-# migration. These tests pin that split contract.
+# Note: fresh and repo-image sandboxes never receive SCM tokens in the
+# environment. Snapshot and image-build paths still receive VCS_CLONE_TOKEN as
+# a fallback because they may run without credential-broker access or legacy
+# snapshot code may require it. These tests pin that split contract.
 
 
 @pytest.mark.asyncio
@@ -400,14 +400,8 @@ async def test_vcs_env_vars_bitbucket(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_repo_image_boot_preserves_clone_token(monkeypatch):
-    """A repo-image boot may run a pre-migration entrypoint with no helper.
-
-    Repo images are selected by SHA and aren't rebuilt by a CACHE_BUSTER
-    bump, so the old entrypoint may still be in use — it needs VCS_CLONE_TOKEN
-    in env (plus the gh aliases + fallback marker). A helper-capable repo
-    image ignores the env token and refreshes via the helper / gh wrapper.
-    """
+async def test_repo_image_boot_omits_fallback_tokens(monkeypatch):
+    """Repo-image boots rely on brokered credentials only."""
     captured = {}
 
     class FakeImage:
@@ -428,15 +422,16 @@ async def test_repo_image_boot_preserves_clone_token(monkeypatch):
 
     env = captured["env"]
     assert env["FROM_REPO_IMAGE"] == "true"
-    assert env["VCS_CLONE_TOKEN"] == "ghs_repo_image_token"
-    assert env["GITHUB_TOKEN"] == "ghs_repo_image_token"
-    assert env["OI_GITHUB_TOKEN_IS_FALLBACK"] == "1"
+    assert "VCS_CLONE_TOKEN" not in env
+    assert "GITHUB_TOKEN" not in env
+    assert "GITHUB_APP_TOKEN" not in env
+    assert "OI_GITHUB_TOKEN_IS_FALLBACK" not in env
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("token_key", ["GH_TOKEN", "GITHUB_TOKEN", "GITHUB_APP_TOKEN"])
 async def test_repo_image_boot_preserves_user_github_cli_token(monkeypatch, token_key):
-    """User-provided GitHub CLI tokens must win over fallback restore tokens."""
+    """Repo-image boots do not replace user-provided GitHub CLI tokens."""
     captured = {}
 
     class FakeImage:
@@ -458,8 +453,8 @@ async def test_repo_image_boot_preserves_user_github_cli_token(monkeypatch, toke
     )
 
     env = captured["env"]
-    assert env["VCS_CLONE_TOKEN"] == "ghs_repo_image_token"
     assert env[token_key] == "user_token"
+    assert "VCS_CLONE_TOKEN" not in env
     assert env.get("GITHUB_TOKEN") != "ghs_repo_image_token"
     assert env.get("GITHUB_APP_TOKEN") != "ghs_repo_image_token"
     assert "OI_GITHUB_TOKEN_IS_FALLBACK" not in env
@@ -467,7 +462,7 @@ async def test_repo_image_boot_preserves_user_github_cli_token(monkeypatch, toke
 
 @pytest.mark.asyncio
 async def test_session_snapshot_boot_preserves_clone_token(monkeypatch):
-    """A session-snapshot boot has the same legacy-compat need as repo images."""
+    """A session-snapshot boot keeps the legacy fallback token."""
     captured = {}
 
     monkeypatch.setattr("src.sandbox.manager.modal.Image.from_registry", lambda *a, **kw: object())
