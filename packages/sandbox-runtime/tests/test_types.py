@@ -38,6 +38,6 @@ class TestSandboxTypes:
         assert config.session_id == "test-123"
         assert config.repo_owner == "acme"
         assert config.repo_name == "webapp"
-        assert config.provider == "anthropic"
-        assert config.model == "claude-sonnet-4-6"
+        assert config.provider == "openai"
+        assert config.model == "gpt-5.5"
         assert config.branch is None
