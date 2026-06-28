@@ -56,6 +56,10 @@ async function ensureAccessToken(getAuth, setAuth) {
   };
 }
 
+function isAuthFailure(response) {
+  return response.status === 401 || response.status === 403;
+}
+
 export const CodexAuthProxy = async (input) => {
   return {
     auth: {
@@ -122,8 +126,8 @@ export const CodexAuthProxy = async (input) => {
 
             request.headers.delete("authorization");
 
-            // Ensure we have a valid access token
-            const { accessToken, accountId } = await ensureAccessToken(getAuth, setAuth);
+            // Ensure we have a valid access token.
+            let { accessToken, accountId } = await ensureAccessToken(getAuth, setAuth);
 
             const parsed = new URL(request.url);
             const url =
@@ -131,13 +135,21 @@ export const CodexAuthProxy = async (input) => {
               parsed.pathname.includes("/chat/completions")
                 ? new URL(CODEX_API_ENDPOINT)
                 : parsed;
-            const proxiedRequest = new Request(url, request);
+            const sendRequest = () => {
+              const nextRequest = new Request(url, request.clone());
+              nextRequest.headers.set("authorization", `Bearer ${accessToken}`);
+              if (accountId) nextRequest.headers.set("ChatGPT-Account-Id", accountId);
+              return fetch(nextRequest);
+            };
 
-            // Replace the dummy API key without discarding source Request options.
-            proxiedRequest.headers.set("authorization", `Bearer ${accessToken}`);
-            if (accountId) proxiedRequest.headers.set("ChatGPT-Account-Id", accountId);
+            let response = await sendRequest();
+            if (isAuthFailure(response)) {
+              tokenBroker.invalidate();
+              ({ accessToken, accountId } = await ensureAccessToken(getAuth, setAuth));
+              response = await sendRequest();
+            }
 
-            return fetch(proxiedRequest);
+            return response;
           },
         };
       },

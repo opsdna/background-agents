@@ -75,5 +75,9 @@ export function createProviderTokenBroker({ provider, providerLabel }) {
       }
       return refreshPromise;
     },
+    invalidate() {
+      cachedResult = null;
+      cachedExpiresAt = 0;
+    },
   };
 }
