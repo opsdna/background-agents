@@ -209,7 +209,7 @@ variable "github_bot_username" {
 variable "github_bot_default_model" {
   description = "Model the GitHub bot starts a session with when the repository's integration config does not pin one. A canonical \"provider/model\" id, or a bare \"claude-\"/\"gpt-\" id the bots normalize into that provider's namespace."
   type        = string
-  default     = "anthropic/claude-haiku-4-5"
+  default     = "openai/gpt-5.5"
   nullable    = false
 
   # Each side of the id must name something, and name it without whitespace:
@@ -260,7 +260,7 @@ variable "slack_signing_secret" {
 variable "slack_bot_default_model" {
   description = "Model the Slack bot starts a session with when the requesting user has no saved model preference. A canonical \"provider/model\" id, or a bare \"claude-\"/\"gpt-\" id the bots normalize into that provider's namespace."
   type        = string
-  default     = "claude-haiku-4-5"
+  default     = "openai/gpt-5.5"
   nullable    = false
 
   # See github_bot_default_model: a prefix or slash with nothing after it names
@@ -324,7 +324,7 @@ variable "linear_api_key" {
 variable "linear_bot_default_model" {
   description = "Model the Linear bot starts a session with when neither the repository's integration config, the requesting user's preference, nor a model label selects one. A canonical \"provider/model\" id, or a bare \"claude-\"/\"gpt-\" id the bots normalize into that provider's namespace."
   type        = string
-  default     = "claude-sonnet-4-6"
+  default     = "openai/gpt-5.5"
   nullable    = false
 
   # See github_bot_default_model: a prefix or slash with nothing after it names

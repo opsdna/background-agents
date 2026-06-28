@@ -75,8 +75,8 @@ class SessionConfig(BaseModel):
     opencode_session_id: str | None = None
     # Which agent runs the session; absent means the built-in OpenCode harness.
     harness: str = "opencode"
-    provider: str = "anthropic"
-    model: str = "claude-sonnet-4-6"
+    provider: str = "openai"
+    model: str = "gpt-5.5"
     mcp_servers: list[McpServerConfig] | None = None
     # Ordered member list for multi-repo sessions; absent for scalar sessions
     # (the runtime synthesizes a one-entry list from repo_owner/repo_name).
