@@ -1164,8 +1164,8 @@ class SandboxSupervisor:
         self.log.info("opencode.start")
 
         # Build OpenCode config from session settings
-        provider = self.session_config.get("provider", "anthropic")
-        model = self.session_config.get("model", "claude-sonnet-4-6")
+        provider = self.session_config.get("provider", "openai")
+        model = self.session_config.get("model", "gpt-5.5")
         opencode_config: dict = {
             "model": f"{provider}/{model}",
             "permission": {"*": {"*": "allow"}},
