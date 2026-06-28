@@ -42,6 +42,7 @@ import { createLogger, parseLogLevel } from "../logger";
 import type { Logger } from "../logger";
 import type { Env } from "../types";
 import { initializeSession } from "../session/initialize";
+import { SessionResourceCleanupService } from "../session/session-resource-cleanup";
 import {
   resolveCodeServerEnabled,
   resolveSandboxSettings,
@@ -159,6 +160,9 @@ export class SchedulerDO extends DurableObject<Env> {
     // 1. Recovery sweep
     await this.recoverySweep(store);
 
+    // 1b. External resource cleanup sweep
+    await this.resourceCleanupSweep(now);
+
     // 2. Process overdue automations
     const overdue = await store.getOverdueAutomations(now, MAX_PER_TICK);
 
@@ -266,6 +270,29 @@ export class SchedulerDO extends DurableObject<Env> {
     return new Response(JSON.stringify({ processed, skipped, failed }), {
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  private async resourceCleanupSweep(now: number): Promise<void> {
+    const cleanup = new SessionResourceCleanupService(
+      this.env.DB,
+      this.env.REPO_SECRETS_ENCRYPTION_KEY,
+      this.log
+    );
+
+    try {
+      const result = await cleanup.processDue(now, 25);
+      if (result.scanned > 0) {
+        this.log.info("Session resource cleanup sweep completed", {
+          event: "scheduler.session_resource_cleanup",
+          ...result,
+        });
+      }
+    } catch (error) {
+      this.log.error("Session resource cleanup sweep failed", {
+        event: "scheduler.session_resource_cleanup_failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   // ─── Recovery sweep ──────────────────────────────────────────────────────

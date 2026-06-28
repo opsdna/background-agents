@@ -28,6 +28,11 @@ import { createDaytonaProvider } from "../sandbox/providers/daytona-provider";
 import { createOpenComputerProvider } from "../sandbox/providers/opencomputer-provider";
 import { createVercelProvider } from "../sandbox/providers/vercel/provider";
 import { resolveSandboxBackendName, supportsRepoImageBackend } from "../sandbox/provider-name";
+import {
+  hasNeonProvisioningConfig,
+  provisionNeonDatabaseEnv,
+  stripNeonControlConfig,
+} from "../sandbox/neon-provisioning";
 import { createLogger, parseLogLevel } from "../logger";
 import type { Logger } from "../logger";
 import {
@@ -44,6 +49,7 @@ import {
 } from "../sandbox/lifecycle/manager";
 import { RepoImageStore } from "../db/repo-images";
 import { McpServerStore } from "../db/mcp-servers";
+import { SessionResourceStore } from "../db/session-resources";
 import { IntegrationSettingsStore, resolveSlackSettings } from "../db/integration-settings";
 import { SessionIndexStore } from "../db/session-index";
 import { DEFAULT_EXECUTION_TIMEOUT_MS } from "../sandbox/lifecycle/decisions";
@@ -81,6 +87,7 @@ import { PresenceService } from "./presence-service";
 import { SessionMessageQueue } from "./message-queue";
 import { SessionSandboxEventProcessor } from "./sandbox-events";
 import { SessionEventStream } from "./event-stream";
+import { SessionResourceCleanupService } from "./session-resource-cleanup";
 import { createSessionInternalRoutes } from "./http/routes";
 import { createMessagesHandler, type MessagesHandler } from "./http/handlers/messages.handler";
 import {
@@ -1636,6 +1643,7 @@ export class SessionDO extends DurableObject<Env> {
     const updatedAt = Math.max(Date.now(), session.updated_at + 1);
     this.repository.updateSessionStatus(session.id, status, updatedAt);
     this.syncSessionIndexStatus(publicSessionId, status, updatedAt);
+    this.scheduleSessionResourceStatusUpdate(publicSessionId, status, updatedAt);
 
     this.broadcast({ type: "session_status", status });
 
@@ -1647,6 +1655,52 @@ export class SessionDO extends DurableObject<Env> {
     this.notifyParentOfStatusChange(session, publicSessionId, status);
 
     return true;
+  }
+
+  private scheduleSessionResourceStatusUpdate(
+    sessionId: string,
+    status: SessionStatus,
+    updatedAt: number
+  ): void {
+    if (!this.env.DB) return;
+
+    const cleanup = new SessionResourceCleanupService(
+      this.env.DB,
+      this.env.REPO_SECRETS_ENCRYPTION_KEY,
+      this.log
+    );
+
+    this.ctx.waitUntil(
+      cleanup
+        .handleSessionStatus(sessionId, status, updatedAt)
+        .then(async (result) => {
+          if (result.action === "marked" && result.deleteAfter !== undefined) {
+            this.log.info("Session resources marked for cleanup", {
+              session_id: sessionId,
+              status,
+              resource_count: result.count,
+              delete_after: result.deleteAfter,
+            });
+          } else if (result.action === "cleared" && result.count > 0) {
+            this.log.info("Session resource cleanup cleared", {
+              session_id: sessionId,
+              status,
+              resource_count: result.count,
+            });
+          }
+
+          if (status === "cancelled" && result.count > 0) {
+            await cleanup.processDue(Date.now(), Math.max(result.count, 10));
+          }
+        })
+        .catch((error) => {
+          this.log.error("Session resource status update failed", {
+            session_id: sessionId,
+            status,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+    );
   }
 
   private applySessionTitleUpdate(
@@ -1883,6 +1937,47 @@ export class SessionDO extends DurableObject<Env> {
     const globalCount = Object.keys(globalSecrets).length;
     const repoCount = Object.keys(repoSecrets).length;
     const mergedCount = Object.keys(merged).length;
+    const neonConfigured = hasNeonProvisioningConfig(merged);
+
+    let sandboxEnv = stripNeonControlConfig(merged);
+    if (neonConfigured) {
+      try {
+        const provisioned = await provisionNeonDatabaseEnv(merged, session);
+        if (provisioned) {
+          const publicSessionId = this.getPublicSessionId(session);
+          await new SessionResourceStore(this.env.DB).upsertNeonBranch({
+            sessionId: publicSessionId,
+            repoOwner: session.repo_owner,
+            repoName: session.repo_name,
+            branchId: provisioned.branchId,
+            branchName: provisioned.branchName,
+            metadata: {
+              projectId: provisioned.projectId,
+            },
+          });
+          sandboxEnv = { ...sandboxEnv, ...provisioned.env };
+          this.log.info("Provisioned Neon branch for sandbox", {
+            session_id: session.id,
+            public_session_id: publicSessionId,
+            repo_owner: session.repo_owner,
+            repo_name: session.repo_name,
+            project_id: provisioned.projectId,
+            branch_id: provisioned.branchId,
+            branch_name: provisioned.branchName,
+          });
+        }
+      } catch (e) {
+        this.log.error("Failed to provision Neon branch for sandbox", {
+          session_id: session.id,
+          repo_owner: session.repo_owner,
+          repo_name: session.repo_name,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        throw e;
+      }
+    }
+
+    const sandboxEnvCount = Object.keys(sandboxEnv).length;
 
     if (mergedCount > 0) {
       const logLevel = exceedsLimit ? "warn" : "info";
@@ -1890,12 +1985,14 @@ export class SessionDO extends DurableObject<Env> {
         global_count: globalCount,
         repo_count: repoCount,
         merged_count: mergedCount,
+        sandbox_env_count: sandboxEnvCount,
+        neon_configured: neonConfigured,
         payload_bytes: totalBytes,
         exceeds_limit: exceedsLimit,
       });
     }
 
-    return mergedCount === 0 ? undefined : merged;
+    return sandboxEnvCount === 0 ? undefined : sandboxEnv;
   }
 
   /**

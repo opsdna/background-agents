@@ -17,6 +17,7 @@ import { GlobalSecretsStore } from "../db/global-secrets";
 import { RepoSecretsStore } from "../db/repo-secrets";
 import { mergeSecrets } from "../db/secrets-validation";
 import { createModalClient } from "../sandbox/client";
+import { stripNeonControlConfig } from "../sandbox/neon-provisioning";
 import { createVercelSandboxClient } from "../sandbox/providers/vercel/client";
 import { createVercelProvider } from "../sandbox/providers/vercel/provider";
 import { createOpenComputerRestClient } from "../sandbox/opencomputer-rest-client";
@@ -896,13 +897,15 @@ async function handleTriggerBuild(
       }
 
       const { merged, totalBytes, exceedsLimit } = mergeSecrets(globalSecrets, repoSecrets);
-      if (Object.keys(merged).length > 0) {
-        userEnvVars = merged;
+      const sandboxEnv = stripNeonControlConfig(merged);
+      if (Object.keys(sandboxEnv).length > 0) {
+        userEnvVars = sandboxEnv;
         const logLevel = exceedsLimit ? "warn" : "info";
         logger[logLevel]("repo_image.secrets_loaded", {
           global_count: Object.keys(globalSecrets).length,
           repo_count: Object.keys(repoSecrets).length,
           merged_count: Object.keys(merged).length,
+          sandbox_env_count: Object.keys(sandboxEnv).length,
           payload_bytes: totalBytes,
           exceeds_limit: exceedsLimit,
           repo_owner: owner,
