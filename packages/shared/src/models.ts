@@ -60,7 +60,6 @@ export const MODEL_CATALOG = [
         id: "anthropic/claude-sonnet-4-6",
         name: "Claude Sonnet 4.6",
         description: "Latest balanced, fast coding",
-        default: true,
         reasoning: { efforts: ["low", "medium", "high", "max"], default: "high" },
       },
       {
@@ -130,6 +129,7 @@ export const MODEL_CATALOG = [
         id: "openai/gpt-5.5",
         name: "GPT 5.5",
         description: "Latest flagship model",
+        default: true,
         reasoning: {
           efforts: ["none", "low", "medium", "high", "xhigh"],
           default: undefined,
