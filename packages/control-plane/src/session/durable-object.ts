@@ -29,6 +29,12 @@ import { resolveSandboxBackendName } from "../sandbox/provider-name";
 import { createSandboxProviderFromEnv } from "../sandbox/provider-factory";
 import { createImageBuildLookup } from "../image-builds/lookup";
 import { resolveImageBuildProvider } from "../image-builds/provider-policy";
+import { resolveRepoImageProvider } from "../repo-images/provider-policy";
+import {
+  hasNeonProvisioningConfig,
+  provisionNeonDatabaseEnv,
+  stripNeonControlConfig,
+} from "../sandbox/neon-provisioning";
 import { createLogger, parseLogLevel } from "../logger";
 import type { Logger } from "../logger";
 import {
@@ -44,6 +50,7 @@ import {
   type SlackAgentNotifyLookup,
 } from "../sandbox/lifecycle/manager";
 import { McpServerStore } from "../db/mcp-servers";
+import { SessionResourceStore } from "../db/session-resources";
 import { IntegrationSettingsStore, resolveSlackSettings } from "../db/integration-settings";
 import { ScmSettingsStore } from "../db/scm-settings";
 import { SessionIndexStore } from "../db/session-index";
@@ -2054,10 +2061,49 @@ export class SessionDO extends DurableObject<Env> {
     });
 
     const mergedCount = Object.keys(merge.merged).length;
+    const neonConfigured = hasNeonProvisioningConfig(merge.merged);
+
+    let sandboxEnv = stripNeonControlConfig(merge.merged);
+    if (neonConfigured) {
+      try {
+        const provisioned = await provisionNeonDatabaseEnv(merge.merged, session);
+        if (provisioned) {
+          const publicSessionId = this.getPublicSessionId(session);
+          await new SessionResourceStore(this.env.DB).upsertNeonBranch({
+            sessionId: publicSessionId,
+            repoOwner: session.repo_owner,
+            repoName: session.repo_name,
+            branchId: provisioned.branchId,
+            branchName: provisioned.branchName,
+            metadata: { projectId: provisioned.projectId },
+          });
+          sandboxEnv = { ...sandboxEnv, ...provisioned.env };
+          this.log.info("Provisioned Neon branch for sandbox", {
+            session_id: session.id,
+            public_session_id: publicSessionId,
+            repo_owner: session.repo_owner,
+            repo_name: session.repo_name,
+            project_id: provisioned.projectId,
+            branch_id: provisioned.branchId,
+            branch_name: provisioned.branchName,
+          });
+        }
+      } catch (error) {
+        this.log.error("Failed to provision Neon branch for sandbox", {
+          session_id: session.id,
+          repo_owner: session.repo_owner,
+          repo_name: session.repo_name,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    }
     if (mergedCount > 0) {
       this.log.info("Secrets merged for sandbox", {
         source_count: sources.length,
         merged_count: mergedCount,
+        sandbox_env_count: Object.keys(sandboxEnv).length,
+        neon_configured: neonConfigured,
         payload_bytes: merge.totalBytes,
         exceeds_limit: merge.exceedsLimit,
       });
@@ -2073,11 +2119,11 @@ export class SessionDO extends DurableObject<Env> {
             (primary && source.label === `${primary.repoOwner}/${primary.repoName}`)
         );
     const managedSecrets = mergeSecretSources(managedSources).merged;
-    const sandboxEnv = prepareManagedProviderEnv({
-      exposedSecrets: merge.merged,
+    const preparedSandboxEnv = prepareManagedProviderEnv({
+      exposedSecrets: sandboxEnv,
       brokerSecrets: managedSecrets,
     });
-    return Object.keys(sandboxEnv).length === 0 ? undefined : sandboxEnv;
+    return Object.keys(preparedSandboxEnv).length === 0 ? undefined : preparedSandboxEnv;
   }
 
   /**
