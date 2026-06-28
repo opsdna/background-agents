@@ -9,10 +9,7 @@ import type { Env } from "../types";
 import type { Logger } from "../logger";
 import type { SessionRow } from "./types";
 
-const OPENAI_TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
-
 type OpenAITokenState =
-  | { type: "cached"; accessToken: string; expiresIn: number; accountId?: string }
   | { type: "refresh"; refreshToken: string; source: "repo" | "global"; repoId: number };
 
 export type OpenAITokenRefreshResult =
@@ -44,15 +41,6 @@ export class OpenAITokenRefreshService {
       return { ok: false, status: 404, error: "OPENAI_OAUTH_REFRESH_TOKEN not configured" };
     }
 
-    if (tokenState.type === "cached") {
-      return {
-        ok: true,
-        accessToken: tokenState.accessToken,
-        expiresIn: tokenState.expiresIn,
-        accountId: tokenState.accountId,
-      };
-    }
-
     try {
       return await this.attemptRefresh(tokenState, session);
     } catch (e) {
@@ -74,19 +62,6 @@ export class OpenAITokenRefreshService {
   ): OpenAITokenState | null {
     if (!secrets.OPENAI_OAUTH_REFRESH_TOKEN) {
       return null;
-    }
-
-    const cachedToken = secrets.OPENAI_OAUTH_ACCESS_TOKEN;
-    const expiresAt = parseInt(secrets.OPENAI_OAUTH_ACCESS_TOKEN_EXPIRES_AT || "0", 10);
-    const now = Date.now();
-
-    if (cachedToken && expiresAt - now > OPENAI_TOKEN_REFRESH_BUFFER_MS) {
-      return {
-        type: "cached",
-        accessToken: cachedToken,
-        expiresIn: Math.floor((expiresAt - now) / 1000),
-        accountId: secrets.OPENAI_OAUTH_ACCOUNT_ID,
-      };
     }
 
     return {
@@ -176,17 +151,7 @@ export class OpenAITokenRefreshService {
     try {
       const reread = await readTokenState();
 
-      if (reread?.type === "cached") {
-        this.log.info("Using cached access token from concurrent rotation");
-        return {
-          ok: true,
-          accessToken: reread.accessToken,
-          expiresIn: reread.expiresIn,
-          accountId: reread.accountId,
-        };
-      }
-
-      if (reread?.type === "refresh" && reread.refreshToken !== tokenState.refreshToken) {
+      if (reread && reread.refreshToken !== tokenState.refreshToken) {
         this.log.info("Detected concurrent token rotation, retrying");
         return this.attemptRefresh(reread, session);
       }
@@ -196,6 +161,11 @@ export class OpenAITokenRefreshService {
       });
     }
 
-    return { ok: false, status: 401, error: "OpenAI token refresh failed: unauthorized" };
+    return {
+      ok: false,
+      status: 401,
+      error:
+        "OpenAI OAuth refresh token was rejected. Re-authenticate ChatGPT and update OPENAI_OAUTH_REFRESH_TOKEN.",
+    };
   }
 }

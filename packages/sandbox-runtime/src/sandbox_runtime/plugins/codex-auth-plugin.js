@@ -73,11 +73,11 @@ async function refreshViaControlPlane() {
   return response.json();
 }
 
-async function ensureAccessToken(getAuth, setAuth) {
+async function ensureAccessToken(getAuth, setAuth, forceRefresh = false) {
   const now = Date.now();
 
   // Return cached token if still fresh
-  if (cachedAccessToken && cachedExpiresAt - now > REFRESH_BUFFER_MS) {
+  if (!forceRefresh && cachedAccessToken && cachedExpiresAt - now > REFRESH_BUFFER_MS) {
     return { accessToken: cachedAccessToken, accountId: cachedAccountId };
   }
 
@@ -103,6 +103,16 @@ async function ensureAccessToken(getAuth, setAuth) {
   }
 
   return { accessToken: cachedAccessToken, accountId: cachedAccountId };
+}
+
+function resetAccessTokenCache() {
+  cachedAccessToken = null;
+  cachedAccountId = null;
+  cachedExpiresAt = 0;
+}
+
+function isAuthFailure(response) {
+  return response.status === 401 || response.status === 403;
 }
 
 export const CodexAuthProxy = async (input) => {
@@ -182,32 +192,31 @@ export const CodexAuthProxy = async (input) => {
             const currentAuth = await getAuth();
             if (currentAuth.type !== "oauth") return fetch(requestInput, init);
 
-            // Ensure we have a valid access token
-            const { accessToken, accountId } = await ensureAccessToken(getAuth, setAuth);
-
-            // Build headers
-            const headers = new Headers();
-            if (init?.headers) {
-              if (init.headers instanceof Headers) {
-                init.headers.forEach((value, key) => headers.set(key, value));
-              } else if (Array.isArray(init.headers)) {
-                for (const [key, value] of init.headers) {
-                  if (value !== undefined) headers.set(key, String(value));
-                }
-              } else {
-                for (const [key, value] of Object.entries(init.headers)) {
-                  if (value !== undefined) headers.set(key, String(value));
+            const buildHeaders = (accessToken, accountId) => {
+              const headers = new Headers();
+              if (init?.headers) {
+                if (init.headers instanceof Headers) {
+                  init.headers.forEach((value, key) => headers.set(key, value));
+                } else if (Array.isArray(init.headers)) {
+                  for (const [key, value] of init.headers) {
+                    if (value !== undefined) headers.set(key, String(value));
+                  }
+                } else {
+                  for (const [key, value] of Object.entries(init.headers)) {
+                    if (value !== undefined) headers.set(key, String(value));
+                  }
                 }
               }
-            }
 
-            // Set real authorization
-            headers.set("authorization", `Bearer ${accessToken}`);
+              headers.set("authorization", `Bearer ${accessToken}`);
+              if (accountId) {
+                headers.set("ChatGPT-Account-Id", accountId);
+              }
+              return headers;
+            };
 
-            // Set ChatGPT-Account-Id header
-            if (accountId) {
-              headers.set("ChatGPT-Account-Id", accountId);
-            }
+            // Ensure we have a valid access token
+            let { accessToken, accountId } = await ensureAccessToken(getAuth, setAuth);
 
             // Rewrite URL to Codex endpoint
             const parsed =
@@ -220,7 +229,20 @@ export const CodexAuthProxy = async (input) => {
                 ? new URL(CODEX_API_ENDPOINT)
                 : parsed;
 
-            return fetch(url, { ...init, headers });
+            let response = await fetch(url, {
+              ...init,
+              headers: buildHeaders(accessToken, accountId),
+            });
+            if (isAuthFailure(response)) {
+              resetAccessTokenCache();
+              ({ accessToken, accountId } = await ensureAccessToken(getAuth, setAuth, true));
+              response = await fetch(url, {
+                ...init,
+                headers: buildHeaders(accessToken, accountId),
+              });
+            }
+
+            return response;
           },
         };
       },

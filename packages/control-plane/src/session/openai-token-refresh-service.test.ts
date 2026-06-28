@@ -119,13 +119,19 @@ describe("OpenAITokenRefreshService", () => {
     vi.useRealTimers();
   });
 
-  it("returns cached repo access token when it is still valid", async () => {
+  it("refreshes even when a cached repo access token still has future expiry", async () => {
     const repoId = 123;
     mockState.repoSecrets.set(repoId, {
       OPENAI_OAUTH_REFRESH_TOKEN: "refresh-1",
       OPENAI_OAUTH_ACCESS_TOKEN: "cached-access",
       OPENAI_OAUTH_ACCESS_TOKEN_EXPIRES_AT: String(Date.now() + 15 * 60 * 1000),
       OPENAI_OAUTH_ACCOUNT_ID: "acct_cached",
+    });
+    mockState.refreshImpl.mockResolvedValue({
+      access_token: "access-new",
+      refresh_token: "refresh-new",
+      expires_in: 1800,
+      account_id: "acct_new",
     });
 
     const service = new OpenAITokenRefreshService(
@@ -139,11 +145,11 @@ describe("OpenAITokenRefreshService", () => {
 
     expect(result).toEqual({
       ok: true,
-      accessToken: "cached-access",
-      expiresIn: expect.any(Number),
-      accountId: "acct_cached",
+      accessToken: "access-new",
+      expiresIn: 1800,
+      accountId: "acct_new",
     });
-    expect(mockState.refreshImpl).not.toHaveBeenCalled();
+    expect(mockState.refreshImpl).toHaveBeenCalledWith("refresh-1");
   });
 
   it("returns 404 when refresh token is missing in repo and global secrets", async () => {
@@ -200,7 +206,7 @@ describe("OpenAITokenRefreshService", () => {
     expect(mockState.repoWrites[0].secrets.OPENAI_OAUTH_ACCESS_TOKEN).toBe("access-new");
   });
 
-  it("uses cached token after concurrent rotation when refresh gets 401", async () => {
+  it("retries with rotated refresh token after concurrent rotation returns 401", async () => {
     vi.useFakeTimers();
 
     const repoId = 123;
@@ -218,6 +224,12 @@ describe("OpenAITokenRefreshService", () => {
       });
       throw new OpenAITokenRefreshError("unauthorized", 401, "unauthorized");
     });
+    mockState.refreshImpl.mockResolvedValueOnce({
+      access_token: "access-after-reread",
+      refresh_token: "refresh-after-reread",
+      expires_in: 1800,
+      account_id: "acct_after_reread",
+    });
 
     const service = new OpenAITokenRefreshService(
       {} as Env["DB"],
@@ -232,10 +244,42 @@ describe("OpenAITokenRefreshService", () => {
 
     expect(result).toEqual({
       ok: true,
-      accessToken: "access-concurrent",
-      expiresIn: expect.any(Number),
-      accountId: "acct_concurrent",
+      accessToken: "access-after-reread",
+      expiresIn: 1800,
+      accountId: "acct_after_reread",
     });
-    expect(mockState.refreshImpl).toHaveBeenCalledTimes(1);
+    expect(mockState.refreshImpl).toHaveBeenCalledTimes(2);
+    expect(mockState.refreshImpl).toHaveBeenNthCalledWith(1, "refresh-stale");
+    expect(mockState.refreshImpl).toHaveBeenNthCalledWith(2, "refresh-rotated");
+  });
+
+  it("returns an actionable error when the stored refresh token is rejected", async () => {
+    vi.useFakeTimers();
+
+    const repoId = 123;
+    mockState.repoSecrets.set(repoId, {
+      OPENAI_OAUTH_REFRESH_TOKEN: "refresh-revoked",
+    });
+    mockState.refreshImpl.mockRejectedValue(
+      new OpenAITokenRefreshError("unauthorized", 401, "unauthorized")
+    );
+
+    const service = new OpenAITokenRefreshService(
+      {} as Env["DB"],
+      "enc-key",
+      async () => repoId,
+      createLogger()
+    );
+
+    const promise = service.refresh(createSession());
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await promise;
+
+    expect(result).toEqual({
+      ok: false,
+      status: 401,
+      error:
+        "OpenAI OAuth refresh token was rejected. Re-authenticate ChatGPT and update OPENAI_OAUTH_REFRESH_TOKEN.",
+    });
   });
 });
