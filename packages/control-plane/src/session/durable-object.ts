@@ -1951,8 +1951,8 @@ export class SessionDO extends DurableObject<Env> {
           const publicSessionId = this.getPublicSessionId(session);
           await new SessionResourceStore(this.env.DB).upsertNeonBranch({
             sessionId: publicSessionId,
-            repoOwner: session.repo_owner,
-            repoName: session.repo_name,
+            repoOwner: session.repo_owner ?? "environment",
+            repoName: session.repo_name ?? "session",
             branchId: provisioned.branchId,
             branchName: provisioned.branchName,
             metadata: { projectId: provisioned.projectId },
