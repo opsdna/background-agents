@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SessionRow } from "../session/types";
 import {
   buildNeonBranchName,
+  buildNeonBranchNameForGitBranch,
   deleteNeonBranch,
   hasNeonProvisioningConfig,
   provisionNeonDatabaseEnv,
@@ -71,6 +72,20 @@ describe("neon provisioning", () => {
     expect(buildNeonBranchName(createSession())).toBe(
       "open-inspect-acme-org-opsdna-api-session-123"
     );
+  });
+
+  it("uses the same sanitized identity for a GitHub branch", () => {
+    expect(
+      buildNeonBranchNameForGitBranch("open-inspect/Session-123", "Acme Org", "OpsDNA API")
+    ).toBe("open-inspect-acme-org-opsdna-api-session-123");
+    expect(
+      buildNeonBranchNameForGitBranch(
+        "open-inspect/Session-123",
+        "Acme Org",
+        "OpsDNA API",
+        "preview"
+      )
+    ).toBe("preview-acme-org-opsdna-api-session-123");
   });
 
   it("reuses an existing branch and returns sandbox database env", async () => {

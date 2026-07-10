@@ -1,4 +1,5 @@
 export type SessionResourceType = "neon_branch";
+export type SessionResourceLifecycleOwner = "open_inspect_session" | "github_pr";
 export type SessionResourceStatus =
   | "active"
   | "pending_delete"
@@ -33,13 +34,26 @@ export interface UpsertNeonBranchResource {
   now?: number;
 }
 
+export interface NeonBranchPullRequestOwnership {
+  sessionId: string;
+  gitBranch: string;
+  prNumber: number;
+  prUrl: string;
+  repoOwner: string;
+  repoName: string;
+  now?: number;
+}
+
 export class SessionResourceStore {
   constructor(private readonly db: D1Database) {}
 
   async upsertNeonBranch(input: UpsertNeonBranchResource): Promise<void> {
     const now = input.now ?? Date.now();
     const id = resourcePrimaryKey(input.sessionId, "neon_branch", input.branchId);
-    const metadata = input.metadata ? JSON.stringify(input.metadata) : null;
+    const metadata = JSON.stringify({
+      ...input.metadata,
+      lifecycleOwner: "open_inspect_session" satisfies SessionResourceLifecycleOwner,
+    });
 
     await this.db
       .prepare(
@@ -53,7 +67,15 @@ export class SessionResourceStore {
            repo_owner = excluded.repo_owner,
            repo_name = excluded.repo_name,
            status = 'active',
-           metadata = excluded.metadata,
+           metadata = CASE
+             WHEN json_extract(COALESCE(session_resources.metadata, '{}'), '$.lifecycleOwner') = 'github_pr'
+             THEN json_set(
+               COALESCE(session_resources.metadata, '{}'),
+               '$.projectId', json_extract(excluded.metadata, '$.projectId'),
+               '$.gitBranch', json_extract(excluded.metadata, '$.gitBranch')
+             )
+             ELSE excluded.metadata
+           END,
            delete_after = NULL,
            deleted_at = NULL,
            last_error = NULL,
@@ -73,6 +95,50 @@ export class SessionResourceStore {
       .run();
   }
 
+  /**
+   * Transfer deletion ownership to the GitHub PR workflow after PR creation.
+   * The git branch is part of the predicate so legacy resources from an older
+   * naming scheme cannot accidentally be claimed by a new PR.
+   */
+  async markNeonBranchOwnedByPullRequest(input: NeonBranchPullRequestOwnership): Promise<number> {
+    const now = input.now ?? Date.now();
+    const result = await this.db
+      .prepare(
+        `UPDATE session_resources
+         SET status = 'active',
+             delete_after = NULL,
+             deleted_at = NULL,
+             last_error = NULL,
+             metadata = json_set(
+               COALESCE(metadata, '{}'),
+               '$.lifecycleOwner', 'github_pr',
+               '$.gitBranch', ?,
+               '$.prNumber', ?,
+               '$.prUrl', ?,
+               '$.prRepoOwner', ?,
+               '$.prRepoName', ?
+             ),
+             updated_at = ?
+         WHERE session_id = ?
+           AND resource_type = 'neon_branch'
+           AND deleted_at IS NULL
+           AND json_extract(COALESCE(metadata, '{}'), '$.gitBranch') = ?`
+      )
+      .bind(
+        input.gitBranch,
+        input.prNumber,
+        input.prUrl,
+        input.repoOwner.toLowerCase(),
+        input.repoName.toLowerCase(),
+        now,
+        input.sessionId,
+        input.gitBranch
+      )
+      .run();
+
+    return result.meta?.changes ?? 0;
+  }
+
   async markSessionForDeletion(
     sessionId: string,
     deleteAfter: number,
@@ -89,7 +155,8 @@ export class SessionResourceStore {
              metadata = json_set(COALESCE(metadata, '{}'), '$.deleteReason', ?)
          WHERE session_id = ?
            AND deleted_at IS NULL
-           AND status != 'deleted'`
+           AND status != 'deleted'
+           AND COALESCE(json_extract(metadata, '$.lifecycleOwner'), 'open_inspect_session') != 'github_pr'`
       )
       .bind(deleteAfter, now, reason, sessionId)
       .run();
@@ -123,6 +190,7 @@ export class SessionResourceStore {
            AND delete_after IS NOT NULL
            AND delete_after <= ?
            AND status IN ('pending_delete', 'deleting', 'delete_failed')
+           AND COALESCE(json_extract(metadata, '$.lifecycleOwner'), 'open_inspect_session') != 'github_pr'
          ORDER BY delete_after ASC, updated_at ASC
          LIMIT ?`
       )
@@ -137,7 +205,9 @@ export class SessionResourceStore {
       .prepare(
         `UPDATE session_resources
          SET status = 'deleting', updated_at = ?
-         WHERE id = ? AND deleted_at IS NULL`
+         WHERE id = ?
+           AND deleted_at IS NULL
+           AND COALESCE(json_extract(metadata, '$.lifecycleOwner'), 'open_inspect_session') != 'github_pr'`
       )
       .bind(now, id)
       .run();
@@ -154,7 +224,9 @@ export class SessionResourceStore {
              delete_after = NULL,
              last_error = NULL,
              updated_at = ?
-         WHERE id = ?`
+         WHERE id = ?
+           AND deleted_at IS NULL
+           AND COALESCE(json_extract(metadata, '$.lifecycleOwner'), 'open_inspect_session') != 'github_pr'`
       )
       .bind(now, now, id)
       .run();
@@ -175,7 +247,9 @@ export class SessionResourceStore {
              last_error = ?,
              delete_after = ?,
              updated_at = ?
-         WHERE id = ? AND deleted_at IS NULL`
+         WHERE id = ?
+           AND deleted_at IS NULL
+           AND COALESCE(json_extract(metadata, '$.lifecycleOwner'), 'open_inspect_session') != 'github_pr'`
       )
       .bind(error.slice(0, 1000), retryAfter, now, id)
       .run();

@@ -161,6 +161,7 @@ function createTestHarness(
     messenger: { broadcast: vi.fn(), sendToSandbox: async () => {} },
     appName: "Open-Inspect",
     sessionPullRequests: { upsert: vi.fn(async () => ({ applied: true })) },
+    markNeonBranchOwnedByPullRequest: vi.fn(async () => 1),
   };
 
   return {
@@ -255,5 +256,20 @@ describe("SessionPullRequestService in-flight creation claims", () => {
     );
     expect(harness.provider.createPullRequest).toHaveBeenCalledTimes(repositories.length);
     expect(harness.artifacts).toHaveLength(repositories.length);
+  });
+});
+
+it("hands the Neon branch to PR lifecycle cleanup after creation", async () => {
+  const harness = createTestHarness();
+
+  await harness.createPullRequest();
+
+  expect(harness.deps.markNeonBranchOwnedByPullRequest).toHaveBeenCalledWith({
+    sessionId: "session-name-1",
+    gitBranch: "open-inspect/session-name-1",
+    prNumber: 42,
+    prUrl: "https://github.com/acme/web/pull/42",
+    repoOwner: "acme",
+    repoName: "web",
   });
 });
