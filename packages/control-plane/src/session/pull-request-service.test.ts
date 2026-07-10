@@ -182,6 +182,7 @@ function createTestHarness() {
     messenger: { broadcast: vi.fn(), sendToSandbox: vi.fn(() => true) },
     appName: "Open-Inspect",
     sessionPullRequests,
+    markNeonBranchOwnedByPullRequest: vi.fn(async () => 1),
   };
 
   const service = new SessionPullRequestService(deps);
@@ -280,6 +281,14 @@ describe("SessionPullRequestService", () => {
     expect(harness.deps.messenger.broadcast).toHaveBeenCalledWith({
       type: "session_branch",
       branchName: "open-inspect/session-name-1",
+      repoOwner: "acme",
+      repoName: "web",
+    });
+    expect(harness.deps.markNeonBranchOwnedByPullRequest).toHaveBeenCalledWith({
+      sessionId: "session-name-1",
+      gitBranch: "open-inspect/session-name-1",
+      prNumber: 42,
+      prUrl: "https://github.com/acme/web/pull/42",
       repoOwner: "acme",
       repoName: "web",
     });

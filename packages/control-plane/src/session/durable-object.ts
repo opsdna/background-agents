@@ -12,6 +12,8 @@ import { initSchema } from "./schema";
 import {
   DEFAULT_MODEL,
   clientMessageSchema,
+  generateBranchName,
+  isValidReasoningEffort,
   resolveAppName,
   sandboxEventSchema,
   timingSafeEqual,
@@ -545,6 +547,8 @@ export class SessionDO extends DurableObject<Env> {
             messenger: this.messenger,
             appName: resolveAppName(this.env),
             sessionPullRequests: this.db ? new SessionPullRequestStore(this.db) : undefined,
+            markNeonBranchOwnedByPullRequest: (data) =>
+              new SessionResourceStore(this.env.DB).markNeonBranchOwnedByPullRequest(data),
           });
 
           return pullRequestService.createPullRequest(input);
@@ -1840,7 +1844,10 @@ export class SessionDO extends DurableObject<Env> {
             repoName: session.repo_name ?? "session",
             branchId: provisioned.branchId,
             branchName: provisioned.branchName,
-            metadata: { projectId: provisioned.projectId },
+            metadata: {
+              projectId: provisioned.projectId,
+              gitBranch: generateBranchName(session.session_name || session.id),
+            },
           });
           sandboxEnv = { ...sandboxEnv, ...provisioned.env };
           this.log.info("Provisioned Neon branch for sandbox", {
