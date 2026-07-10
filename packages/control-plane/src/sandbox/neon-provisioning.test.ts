@@ -278,4 +278,34 @@ describe("neon provisioning", () => {
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
+
+  it("hard-deletes a branch when requested", async () => {
+    const fetchFn = vi.fn<typeof fetch>(async (url, init) => {
+      expect(String(url)).toBe(
+        "https://console.neon.tech/api/v2/projects/project-123/branches/br-old?hard_delete=true"
+      );
+      expect(init?.method).toBe("DELETE");
+      return new Response(null, { status: 204 });
+    });
+
+    const config = readNeonProvisioningConfig(createNeonSecrets());
+    expect(config).not.toBeNull();
+    await deleteNeonBranch(config!, "br-old", { fetchFn, hardDelete: true });
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats missing branches as deleted when requested", async () => {
+    const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 404 }));
+
+    const config = readNeonProvisioningConfig(createNeonSecrets());
+    expect(config).not.toBeNull();
+    await deleteNeonBranch(config!, "br-missing", {
+      fetchFn,
+      hardDelete: true,
+      ignoreNotFound: true,
+    });
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
 });
