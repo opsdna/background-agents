@@ -23,6 +23,7 @@ import type { ScmSettings } from "@open-inspect/shared/types/integrations";
 import { resolveAppName } from "@open-inspect/shared/app-name";
 import { timingSafeEqual } from "@open-inspect/shared/auth";
 import { DEFAULT_MODEL } from "@open-inspect/shared/models";
+import { generateBranchName } from "@open-inspect/shared/git";
 import { generateId, hashToken, encryptToken, decryptToken } from "../auth/crypto";
 import { buildModalSandboxDashboardUrl } from "../sandbox/client";
 import { resolveSandboxBackendName } from "../sandbox/provider-name";
@@ -641,6 +642,8 @@ export class SessionDO extends DurableObject<Env> {
             appName: resolveAppName(this.env),
             sessionPullRequests: this.db ? new SessionPullRequestStore(this.db) : undefined,
             resolveScmSettings: (repo) => this.resolveScmSettings(repo),
+            markNeonBranchOwnedByPullRequest: (data) =>
+              new SessionResourceStore(this.env.DB).markNeonBranchOwnedByPullRequest(data),
           });
 
           return pullRequestService.createPullRequest(input);
@@ -2075,7 +2078,10 @@ export class SessionDO extends DurableObject<Env> {
             repoName: session.repo_name ?? "session",
             branchId: provisioned.branchId,
             branchName: provisioned.branchName,
-            metadata: { projectId: provisioned.projectId },
+            metadata: {
+              projectId: provisioned.projectId,
+              gitBranch: generateBranchName(session.session_name || session.id),
+            },
           });
           sandboxEnv = { ...sandboxEnv, ...provisioned.env };
           this.log.info("Provisioned Neon branch for sandbox", {
