@@ -1,3 +1,4 @@
+import { BRANCH_PREFIX, generateBranchName } from "@open-inspect/shared";
 import type { SessionRow } from "../session/types";
 
 const DEFAULT_NEON_API_BASE_URL = "https://console.neon.tech/api/v2";
@@ -139,13 +140,34 @@ export function buildNeonBranchName(
   session: Pick<SessionRow, "id" | "session_name" | "repo_owner" | "repo_name">,
   prefix = DEFAULT_BRANCH_NAME_PREFIX
 ): string {
-  const sessionId = session.session_name || session.id;
-  const parts = [
-    sanitizeBranchSegment(prefix),
-    sanitizeBranchSegment(session.repo_owner),
-    sanitizeBranchSegment(session.repo_name),
-    sanitizeBranchSegment(sessionId),
-  ].filter(Boolean);
+  return buildNeonBranchNameForGitBranch(
+    generateBranchName(session.session_name || session.id),
+    session.repo_owner,
+    session.repo_name,
+    prefix
+  );
+}
+
+/**
+ * Convert the canonical Open-Inspect git branch into the matching Neon name.
+ * Neon branch names use hyphens, while git branches use slash-separated
+ * prefixes. Keeping this conversion here gives the control plane and the PR
+ * workflow one deterministic identity without storing another branch column.
+ */
+export function buildNeonBranchNameForGitBranch(
+  gitBranch: string,
+  repoOwner: string | null | undefined,
+  repoName: string | null | undefined,
+  prefix = DEFAULT_BRANCH_NAME_PREFIX
+): string {
+  const sanitizedGitBranch = sanitizeBranchSegment(gitBranch);
+  const inspectPrefix = `${sanitizeBranchSegment(BRANCH_PREFIX)}-`;
+  const branchSegment = sanitizedGitBranch.startsWith(inspectPrefix)
+    ? sanitizedGitBranch.slice(inspectPrefix.length)
+    : sanitizedGitBranch;
+  const parts = [prefix, repoOwner, repoName, branchSegment]
+    .map(sanitizeBranchSegment)
+    .filter(Boolean);
 
   const name = parts.join("-");
   return trimBranchName(name) || `${DEFAULT_BRANCH_NAME_PREFIX}-${Date.now()}`;

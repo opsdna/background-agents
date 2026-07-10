@@ -111,6 +111,15 @@ export interface PullRequestServiceDeps {
   broadcastArtifactCreated: (artifact: SessionArtifact) => void;
   /** Display name used in the PR body footer (e.g. "Created with [name](url)"). */
   appName: string;
+  /** Transfer the matching Neon branch to the GitHub PR lifecycle. */
+  markNeonBranchOwnedByPullRequest: (data: {
+    sessionId: string;
+    gitBranch: string;
+    prNumber: number;
+    prUrl: string;
+    repoOwner: string;
+    repoName: string;
+  }) => Promise<number>;
 }
 
 /**
@@ -289,6 +298,34 @@ export class SessionPullRequestService {
         metadata: JSON.stringify(artifactMetadata),
         createdAt: now,
       });
+
+      try {
+        const updatedResources = await this.deps.markNeonBranchOwnedByPullRequest({
+          sessionId: session.session_name || session.id,
+          gitBranch: sanitizedHeadBranch,
+          prNumber: prResult.id,
+          prUrl: prResult.webUrl,
+          repoOwner: targetRepo.repoOwner,
+          repoName: targetRepo.repoName,
+        });
+        if (updatedResources === 0) {
+          this.deps.log.warn("Created PR without transferring Neon branch ownership", {
+            session_id: session.id,
+            git_branch: sanitizedHeadBranch,
+            pr_number: prResult.id,
+          });
+        }
+      } catch (error) {
+        // The PR already exists and the artifact is persisted. Keep the
+        // successful result while leaving the cleanup retry/safety net to
+        // handle a transient D1 failure.
+        this.deps.log.warn("Failed to transfer Neon branch ownership to PR", {
+          session_id: session.id,
+          git_branch: sanitizedHeadBranch,
+          pr_number: prResult.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
 
       this.deps.broadcastArtifactCreated({
         id: artifactId,

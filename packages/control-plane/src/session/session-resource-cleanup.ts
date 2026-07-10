@@ -98,7 +98,13 @@ export class SessionResourceCleanupService {
 
       const resourceConfig = configForResource(config, resource);
       try {
-        await store.markDeleting(resource.id, now);
+        const markedDeleting = await store.markDeleting(resource.id, now);
+        if (!markedDeleting) {
+          // Ownership may have moved to the PR workflow after the due list
+          // was read. Do not delete a resource that won that race.
+          skipped++;
+          continue;
+        }
         await deleteNeonBranch(resourceConfig, resource.resource_id, {
           fetchFn: this.fetchFn,
           hardDelete: true,

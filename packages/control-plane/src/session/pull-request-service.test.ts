@@ -171,6 +171,7 @@ function createTestHarness() {
     broadcastSessionBranch: vi.fn(),
     broadcastArtifactCreated: vi.fn(),
     appName: "Open-Inspect",
+    markNeonBranchOwnedByPullRequest: vi.fn(async () => 1),
   };
 
   const service = new SessionPullRequestService(deps);
@@ -267,6 +268,14 @@ describe("SessionPullRequestService", () => {
       "open-inspect/session-name-1",
       { repoOwner: "acme", repoName: "web" }
     );
+    expect(harness.deps.markNeonBranchOwnedByPullRequest).toHaveBeenCalledWith({
+      sessionId: "session-name-1",
+      gitBranch: "open-inspect/session-name-1",
+      prNumber: 42,
+      prUrl: "https://github.com/acme/web/pull/42",
+      repoOwner: "acme",
+      repoName: "web",
+    });
   });
 
   it("uses the sanitized branch for push, PR creation, and branch sync", async () => {
