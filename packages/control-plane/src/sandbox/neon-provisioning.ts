@@ -125,10 +125,14 @@ export async function provisionNeonDatabaseEnv(
 export async function deleteNeonBranch(
   config: NeonProvisioningConfig,
   branchId: string,
-  options: NeonProvisionerOptions & { hardDelete?: boolean } = {}
+  options: NeonProvisionerOptions & { hardDelete?: boolean; ignoreNotFound?: boolean } = {}
 ): Promise<void> {
   const provisioner = new NeonBranchProvisioner(config, options);
-  await provisioner.deleteBranch(branchId, options.hardDelete ?? false);
+  await provisioner.deleteBranch(
+    branchId,
+    options.hardDelete ?? false,
+    options.ignoreNotFound ?? false
+  );
 }
 
 export function buildNeonBranchName(
@@ -178,13 +182,18 @@ class NeonBranchProvisioner {
     };
   }
 
-  async deleteBranch(branchId: string, hardDelete: boolean): Promise<void> {
+  async deleteBranch(
+    branchId: string,
+    hardDelete: boolean,
+    ignoreNotFound: boolean
+  ): Promise<void> {
     const query = new URLSearchParams({
       hard_delete: hardDelete ? "true" : "false",
     });
     await this.requestNoContent(
       `/projects/{project_id}/branches/${encodeURIComponent(branchId)}?${query.toString()}`,
-      { method: "DELETE" }
+      { method: "DELETE" },
+      { ignoreNotFound }
     );
   }
 
@@ -306,11 +315,19 @@ class NeonBranchProvisioner {
     return response.json();
   }
 
-  private async requestNoContent(path: string, init: RequestInit = {}): Promise<void> {
-    await this.request(path, init);
+  private async requestNoContent(
+    path: string,
+    init: RequestInit = {},
+    options: { ignoreNotFound?: boolean } = {}
+  ): Promise<void> {
+    await this.request(path, init, options);
   }
 
-  private async request(path: string, init: RequestInit = {}): Promise<Response> {
+  private async request(
+    path: string,
+    init: RequestInit = {},
+    options: { ignoreNotFound?: boolean } = {}
+  ): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     headers.set("Authorization", `Bearer ${this.config.apiKey}`);
@@ -322,6 +339,10 @@ class NeonBranchProvisioner {
       ...init,
       headers,
     });
+
+    if (response.status === 404 && options.ignoreNotFound) {
+      return response;
+    }
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");

@@ -99,7 +99,11 @@ export class SessionResourceCleanupService {
       const resourceConfig = configForResource(config, resource);
       try {
         await store.markDeleting(resource.id, now);
-        await deleteNeonBranch(resourceConfig, resource.resource_id, { fetchFn: this.fetchFn });
+        await deleteNeonBranch(resourceConfig, resource.resource_id, {
+          fetchFn: this.fetchFn,
+          hardDelete: true,
+          ignoreNotFound: true,
+        });
         await store.markDeleted(resource.id, Date.now());
         deleted++;
         this.log?.info("Deleted session Neon branch", {
