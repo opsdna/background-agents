@@ -148,7 +148,7 @@ async function createSession(
     actorUserId?: string;
     actorDisplayName?: string;
     actorEmail?: string;
-    baseBranch?: string;
+    branch?: string;
   },
   traceId?: string
 ): Promise<{ ok: true; sessionId: string } | { ok: false; status: number; body: string }> {
@@ -613,7 +613,7 @@ async function handleNewSession(
       actorUserId: sessionActorUserId,
       actorDisplayName,
       actorEmail,
-      ...(baseBranch ? { baseBranch } : {}),
+      ...(baseBranch ? { branch: baseBranch } : {}),
     },
     traceId
   );
