@@ -18,7 +18,6 @@ import { resolveAppName } from "@open-inspect/shared/app-name";
 import { handleAgentSessionEvent } from "./webhook-handler";
 import { escapeHtml } from "./prompts";
 import { isDuplicateEvent } from "./kv-store";
-import { handlePreviewFeedbackIngest } from "./preview-feedback";
 
 const log = createLogger("handler");
 
@@ -75,8 +74,6 @@ const app = new Hono<{ Bindings: Env }>();
 app.get("/health", (c) => {
   return c.json({ status: "healthy", service: "open-inspect-linear-bot" });
 });
-
-app.post("/preview-feedback/ingest", (c) => handlePreviewFeedbackIngest(c));
 
 // ─── OAuth Routes ────────────────────────────────────────────────────────────
 

@@ -216,6 +216,7 @@ export interface ResolveSessionTargetParams {
   traceId: string;
   scope: LinearChannelScope;
   teamId: string | null;
+  issueDescription?: string | null;
 }
 
 export interface ResolvedSessionTarget {
@@ -243,9 +244,14 @@ export async function resolveSessionTarget(
     traceId,
     scope,
     teamId,
+    issueDescription,
   } = params;
 
-  const previewDispatch = await getPreviewFeedbackDispatch(env, issue.id);
+  const previewDispatch = await getPreviewFeedbackDispatch(
+    env,
+    issue.id,
+    issueDescription ?? issue.description
+  );
   if (previewDispatch) {
     const { owner, name } = splitRepoFullName(previewDispatch.repository);
     return {

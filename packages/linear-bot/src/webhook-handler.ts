@@ -469,6 +469,7 @@ async function handleNewSession(
     projectInfo,
     comment: resolutionComment,
     traceId,
+    issueDescription: issueDetails?.description,
     scope,
     teamId,
   }).catch(async () => {
