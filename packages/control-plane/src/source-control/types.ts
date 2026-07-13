@@ -149,13 +149,6 @@ export interface RepositoryAccessResult {
   defaultBranch: string;
 }
 
-export interface BranchHead {
-  /** Branch name as resolved by the provider. */
-  name: string;
-  /** Full commit SHA at the branch head. */
-  sha: string;
-}
-
 /**
  * Configuration for creating a pull request.
  */
@@ -379,10 +372,9 @@ export interface SourceControlProvider {
    * @param config - PR identifier; include repositoryExternalId when known
    *   so a 404 triggers a resolve-by-id + single retry (rename tolerance)
    * @returns Current PR snapshot
-   * @throws SourceControlProviderError
-   */
+  * @throws SourceControlProviderError
+  */
   getPullRequest(config: GetPullRequestConfig): Promise<PullRequestSnapshot>;
-
   /**
    * Resolve a branch head with app-level credentials.
    *
