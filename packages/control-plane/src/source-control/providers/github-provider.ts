@@ -25,6 +25,7 @@ import {
   getCachedInstallationToken,
   getCachedInstallationTokenWithExpiry,
   getInstallationRepository,
+  getRepositoryBranchHead,
   listInstallationRepositories,
   listRepositoryBranches,
   fetchWithTimeout,
@@ -286,6 +287,32 @@ export class GitHubSourceControlProvider implements SourceControlProvider {
     } catch (error) {
       throw SourceControlProviderError.fromFetchError(
         `Failed to list branches: ${error instanceof Error ? error.message : String(error)}`,
+        error,
+        extractHttpStatus(error)
+      );
+    }
+  }
+
+  async getBranchHead(
+    config: GetRepositoryConfig & { branch: string }
+  ): Promise<{ name: string; sha: string } | null> {
+    if (!this.appConfig) {
+      throw new SourceControlProviderError(
+        "GitHub App not configured - cannot resolve branch head",
+        "permanent"
+      );
+    }
+    try {
+      return await getRepositoryBranchHead(
+        this.appConfig,
+        config.owner,
+        config.name,
+        config.branch,
+        { cacheStore: this.cacheStore, userAgent: this.userAgent }
+      );
+    } catch (error) {
+      throw SourceControlProviderError.fromFetchError(
+        `Failed to resolve branch head: ${error instanceof Error ? error.message : String(error)}`,
         error,
         extractHttpStatus(error)
       );

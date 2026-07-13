@@ -667,6 +667,51 @@ export async function listRepositoryBranches(
   return branches;
 }
 
+/** Resolve one branch head using the GitHub App installation token. */
+export async function getRepositoryBranchHead(
+  config: GitHubAppConfig,
+  owner: string,
+  repo: string,
+  branch: string,
+  env?: InstallationTokenCacheBindings
+): Promise<{ name: string; sha: string } | null> {
+  const cacheKey = getInstallationTokenCacheKey(config);
+  let forceRefresh = false;
+  let response!: Response;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await getCachedInstallationToken(config, env, { forceRefresh });
+    response = await fetchWithTimeout(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/${encodeURIComponent(branch)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": resolveUserAgent(env),
+        },
+      }
+    );
+    if (response.status !== 401) break;
+    await invalidateInstallationTokenCache(env, cacheKey);
+    forceRefresh = true;
+  }
+
+  if (response.status === 404 || response.status === 403) return null;
+  if (!response.ok) {
+    const error = await response.text();
+    throw createHttpError(
+      `Failed to fetch repository branch: ${response.status} ${error}`,
+      response.status
+    );
+  }
+  const data = (await response.json()) as { name?: unknown; commit?: { sha?: unknown } };
+  if (typeof data.name !== "string" || typeof data.commit?.sha !== "string") {
+    throw new Error("Failed to fetch repository branch: invalid response");
+  }
+  return { name: data.name, sha: data.commit.sha };
+}
+
 /**
  * Check if GitHub App credentials are configured.
  */
