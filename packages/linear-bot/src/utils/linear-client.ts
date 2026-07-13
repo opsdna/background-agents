@@ -372,25 +372,6 @@ export async function createIssueAttachment(
   if (!success) throw new Error("Linear attachment creation failed");
 }
 
-export async function createComment(
-  client: LinearApiClient,
-  issueId: string,
-  body: string
-): Promise<void> {
-  const result = await linearGraphQL(
-    client,
-    `
-      mutation PreviewFeedbackCommentCreate($input: CommentCreateInput!) {
-        commentCreate(input: $input) { success }
-      }
-    `,
-    { input: { issueId, body } }
-  );
-  const success = (result as { data?: { commentCreate?: { success?: boolean } } }).data
-    ?.commentCreate?.success;
-  if (!success) throw new Error("Linear comment creation failed");
-}
-
 export interface CreatedLinearAgentSession {
   id: string;
   url: string | null;

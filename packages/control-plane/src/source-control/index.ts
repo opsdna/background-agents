@@ -19,7 +19,6 @@ export type {
   CreatePullRequestConfig,
   CreatePullRequestResult,
   RepositoryAccessResult,
-  BranchHead,
 } from "./types";
 
 // Errors

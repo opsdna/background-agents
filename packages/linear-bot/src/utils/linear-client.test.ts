@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createAgentSessionOnIssue,
-  createComment,
   createIssueAttachment,
   fetchUser,
   getOAuthTokenOrThrow,
@@ -13,6 +12,31 @@ import { createFakeKV, makeLinearBotEnv } from "../test-helpers";
 const client: LinearApiClient = { accessToken: "test-token" };
 const FRESH_TOKEN_EXPIRES_IN_MS = 10 * 60 * 1000;
 const EXPIRED_TOKEN_AGE_MS = 60 * 1000;
+
+describe("createAgentSessionOnIssue", () => {
+  it("assigns the Linear app by creating an agent session on the issue", async () => {
+    mockFetchResponse({
+      data: {
+        agentSessionCreateOnIssue: {
+          success: true,
+          agentSession: {
+            id: "agent-session-id",
+            url: "https://linear.app/agent/session",
+            status: "pending",
+          },
+        },
+      },
+    });
+
+    await expect(createAgentSessionOnIssue(client, "issue-id")).resolves.toEqual({
+      id: "agent-session-id",
+      url: "https://linear.app/agent/session",
+      status: "pending",
+    });
+    const [, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(JSON.parse(String(init?.body)).variables).toEqual({ input: { issueId: "issue-id" } });
+  });
+});
 
 function mockFetchResponse(data: unknown): void {
   vi.stubGlobal(
@@ -160,43 +184,6 @@ describe("preview feedback Linear assets", () => {
       url: "https://preview.example/funds",
       metadata: { feedbackId: "feedback-id", prNumber: 1548 },
     });
-  });
-
-  it("uses the pinned proactive Agent Session mutation shape", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: { commentCreate: { success: true } } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: {
-              agentSessionCreateOnIssue: {
-                success: true,
-                agentSession: {
-                  id: "linear-agent-session",
-                  url: "https://linear.app/agent/session",
-                  status: "pending",
-                },
-              },
-            },
-          }),
-      });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await createComment(client, "parent-id", "Fix requested for OPS-1001");
-    await expect(createAgentSessionOnIssue(client, "parent-id")).resolves.toEqual({
-      id: "linear-agent-session",
-      url: "https://linear.app/agent/session",
-      status: "pending",
-    });
-    const commentInput = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)).variables.input;
-    const sessionInput = JSON.parse(String(fetchMock.mock.calls[1]![1]?.body)).variables.input;
-    expect(commentInput).toEqual({ issueId: "parent-id", body: "Fix requested for OPS-1001" });
-    expect(sessionInput).toEqual({ issueId: "parent-id" });
   });
 });
 

@@ -148,13 +148,6 @@ export interface RepositoryAccessResult {
   defaultBranch: string;
 }
 
-export interface BranchHead {
-  /** Branch name as resolved by the provider. */
-  name: string;
-  /** Full commit SHA at the branch head. */
-  sha: string;
-}
-
 /**
  * Configuration for creating a pull request.
  */
@@ -298,14 +291,6 @@ export interface SourceControlProvider {
    * @throws SourceControlProviderError on configuration or API errors
    */
   listBranches(config: GetRepositoryConfig): Promise<{ name: string }[]>;
-
-  /**
-   * Resolve a branch head with app-level credentials.
-   *
-   * Returns null when the repository or branch is not accessible. Callers use
-   * this to reject work derived from stale external metadata.
-   */
-  getBranchHead(config: GetRepositoryConfig & { branch: string }): Promise<BranchHead | null>;
 
   /**
    * Generate authentication for git push operations.

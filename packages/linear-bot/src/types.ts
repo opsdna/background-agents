@@ -130,6 +130,7 @@ export interface IssueSession {
   /** Set for repository sessions; absent for environment sessions. */
   repoOwner?: string;
   repoName?: string;
+  /** Source branch the agent should inspect and target with its pull request. */
   baseBranch?: string;
   /** Set for environment sessions. */
   environmentId?: string;

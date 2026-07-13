@@ -4,7 +4,6 @@ import {
   getGitHubAppConfig,
   getCachedInstallationToken,
   getCachedInstallationTokenWithExpiry,
-  getRepositoryBranchHead,
   INSTALLATION_TOKEN_CACHE_MAX_AGE_MS,
   INSTALLATION_TOKEN_MIN_REMAINING_MS,
 } from "./github-app";
@@ -172,73 +171,6 @@ describe("github-app utilities", () => {
 
       expect(token).toBe("token-from-kv");
       expect(fetchMock).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("getRepositoryBranchHead", () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-    });
-
-    it("uses installation credentials and preserves branch slashes", async () => {
-      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        Response.json({
-          name: "feature/preview feedback",
-          commit: { sha: "a".repeat(40) },
-        })
-      );
-      const cacheStore = new FakeCacheStore();
-      const config = {
-        appId: `app-branch-${Date.now()}`,
-        privateKey: "-----BEGIN PRIVATE KEY-----\nAA==\n-----END PRIVATE KEY-----",
-        installationId: "installation-branch",
-      };
-      await cacheStore.put(
-        `github:installation-token:v1:${config.appId}:${config.installationId}`,
-        JSON.stringify({
-          token: "branch-token",
-          expiresAtEpochMs:
-            Date.now() + INSTALLATION_TOKEN_CACHE_MAX_AGE_MS + INSTALLATION_TOKEN_MIN_REMAINING_MS,
-          cachedAtEpochMs: Date.now(),
-        })
-      );
-
-      await expect(
-        getRepositoryBranchHead(config, "acme", "web", "feature/preview feedback", {
-          cacheStore,
-        })
-      ).resolves.toEqual({ name: "feature/preview feedback", sha: "a".repeat(40) });
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://api.github.com/repos/acme/web/branches/feature%2Fpreview%20feedback",
-        expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: "Bearer branch-token" }),
-        })
-      );
-    });
-
-    it("returns null when the branch is gone", async () => {
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-        new Response("not found", { status: 404 })
-      );
-      const cacheStore = new FakeCacheStore();
-      const config = {
-        appId: `app-missing-branch-${Date.now()}`,
-        privateKey: "-----BEGIN PRIVATE KEY-----\nAA==\n-----END PRIVATE KEY-----",
-        installationId: "installation-missing-branch",
-      };
-      await cacheStore.put(
-        `github:installation-token:v1:${config.appId}:${config.installationId}`,
-        JSON.stringify({
-          token: "branch-token",
-          expiresAtEpochMs:
-            Date.now() + INSTALLATION_TOKEN_CACHE_MAX_AGE_MS + INSTALLATION_TOKEN_MIN_REMAINING_MS,
-          cachedAtEpochMs: Date.now(),
-        })
-      );
-
-      await expect(
-        getRepositoryBranchHead(config, "acme", "web", "deleted", { cacheStore })
-      ).resolves.toBeNull();
     });
   });
 

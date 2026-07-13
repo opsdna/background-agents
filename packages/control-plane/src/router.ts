@@ -37,7 +37,6 @@ import { providerIdentityRoutes } from "./routes/provider-identities";
 import { sessionRoutes } from "./routes/sessions";
 import { handleSlackNotify } from "./routes/slack-notify";
 import { webhookRoutes } from "./webhooks";
-import { previewFeedbackChannelRoutes } from "./routes/preview-feedback-channels";
 
 const logger = createLogger("router");
 
@@ -345,9 +344,6 @@ const routes: Route[] = [
 
   // Provider identities
   ...providerIdentityRoutes,
-
-  // Preview feedback branch/session coordination (internal-HMAC only)
-  ...previewFeedbackChannelRoutes,
 
   // Webhooks (public routes — auth handled per-route)
   ...webhookRoutes,
