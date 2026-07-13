@@ -199,6 +199,34 @@ async function updateChannel(request: Request, ctx: RequestContext): Promise<Res
   return channel ? json({ channel }) : error("Preview feedback channel lease lost", 409);
 }
 
+async function attachSession(request: Request, ctx: RequestContext): Promise<Response> {
+  const body = await boundedBody<{
+    parentLinearIssueId?: unknown;
+    linearAgentSessionId?: unknown;
+    openInspectSessionId?: unknown;
+    now?: unknown;
+  }>(request);
+  if (body instanceof Response) return body;
+  const parentLinearIssueId = requiredString(body.parentLinearIssueId);
+  const linearAgentSessionId = requiredString(body.linearAgentSessionId);
+  const openInspectSessionId = requiredString(body.openInspectSessionId);
+  if (
+    !parentLinearIssueId ||
+    !linearAgentSessionId ||
+    !openInspectSessionId ||
+    !safeInteger(body.now)
+  ) {
+    return error("Invalid preview feedback session attachment", 400);
+  }
+  const channel = await new PreviewFeedbackChannelStore(ctx.db).attachOpenInspectSession({
+    parentLinearIssueId,
+    linearAgentSessionId,
+    openInspectSessionId,
+    now: body.now,
+  });
+  return channel ? json({ channel }) : error("Preview feedback channel session mismatch", 409);
+}
+
 const LINEAR_SERVICE = admit({
   authentication: { kind: "service" },
   supportedScmProviders: "all",
@@ -226,4 +254,9 @@ previewFeedbackChannelRoutes.post(
   "/preview-feedback/channels/by-parent",
   LINEAR_SERVICE,
   (c) => dispatch(c, (request, _env, _params, ctx) => getChannelByParent(request, ctx))
+);
+previewFeedbackChannelRoutes.post(
+  "/preview-feedback/channels/attach-session",
+  LINEAR_SERVICE,
+  (c) => dispatch(c, (request, _env, _params, ctx) => attachSession(request, ctx))
 );
