@@ -1,8 +1,12 @@
 import type { Context } from "hono";
-import { buildInternalAuthHeaders, timingSafeEqual } from "@open-inspect/shared";
+import { buildInternalAuthHeaders } from "@open-inspect/shared";
 
 import type { Env } from "./types";
 import { createLogger } from "./logger";
+import {
+  authenticatePreviewFeedbackRequest,
+  PREVIEW_FEEDBACK_SIGNATURE_WINDOW_SECONDS,
+} from "./preview-feedback-auth";
 import {
   createAgentSessionOnIssue,
   createComment,
@@ -14,9 +18,8 @@ import {
 } from "./utils/linear-client";
 
 const MAX_REQUEST_BYTES = 3 * 1024 * 1024;
-const SIGNATURE_WINDOW_SECONDS = 5 * 60;
 const IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
-const NONCE_TTL_SECONDS = SIGNATURE_WINDOW_SECONDS;
+const NONCE_TTL_SECONDS = PREVIEW_FEEDBACK_SIGNATURE_WINDOW_SECONDS;
 const DEFAULT_REPORTER_LIMIT_PER_HOUR = 30;
 const DEFAULT_CHANNEL_LIMIT_PER_HOUR = 100;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
@@ -80,34 +83,24 @@ export async function handlePreviewFeedbackIngest(
   c: Context<{ Bindings: Env }>,
   services: PreviewFeedbackIngestServices = {}
 ): Promise<Response> {
-  const secret = c.env.PREVIEW_FEEDBACK_HMAC_SECRET;
-  if (!secret || secret.length < 32) return reason(c, 503, "not_configured");
-
   const body = await c.req.text();
-  if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
-    return reason(c, 413, "request_too_large");
-  }
   const idempotencyKey = c.req.header("idempotency-key") ?? "";
-  const timestamp = c.req.header("x-opsdna-feedback-timestamp") ?? "";
-  const nonce = c.req.header("x-opsdna-feedback-nonce") ?? "";
-  const signature = c.req.header("x-opsdna-feedback-signature") ?? "";
-  if (!isUuid(idempotencyKey) || !isUuid(nonce) || !/^\d{10}$/u.test(timestamp)) {
+  if (!isUuid(idempotencyKey)) {
     return reason(c, 401, "invalid_signature");
   }
-  const nowSeconds = Math.floor((services.now?.() ?? Date.now()) / 1000);
-  const timestampSeconds = Number(timestamp);
-  if (Math.abs(nowSeconds - timestampSeconds) > SIGNATURE_WINDOW_SECONDS) {
-    return reason(c, 401, "expired_signature");
-  }
-  const bodyHash = await sha256Hex(body);
-  const expected = `v1=${await hmacHex(secret, `v1\n${timestamp}\n${nonce}\n${bodyHash}`)}`;
-  if (!timingSafeEqual(signature, expected)) return reason(c, 401, "invalid_signature");
+  const nowMs = services.now?.() ?? Date.now();
+  const auth = await authenticatePreviewFeedbackRequest(c, body, {
+    maxBytes: MAX_REQUEST_BYTES,
+    nowMs,
+  });
+  if (!auth.ok) return reason(c, auth.status, auth.reason);
+  const nowSeconds = Math.floor(nowMs / 1000);
 
   const idempotencyStorageKey = `preview-feedback:idempotency:${idempotencyKey}`;
   const prior = await c.env.LINEAR_KV.get(idempotencyStorageKey);
   if (prior) return new Response(prior, jsonInit(201));
 
-  const nonceKey = `preview-feedback:nonce:${nonce}`;
+  const nonceKey = `preview-feedback:nonce:${auth.nonce}`;
   if (await c.env.LINEAR_KV.get(nonceKey)) return reason(c, 409, "nonce_replayed");
   await c.env.LINEAR_KV.put(nonceKey, "1", { expirationTtl: NONCE_TTL_SECONDS });
 
@@ -981,19 +974,6 @@ function jsonInit(status: number): ResponseInit {
 
 async function sha256Hex(value: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function hmacHex(secret: string, value: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const bytes = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
