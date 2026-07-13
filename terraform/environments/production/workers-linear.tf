@@ -47,6 +47,11 @@ module "linear_bot_worker" {
     DEFAULT_MODEL        = { value = var.linear_bot_default_model }
     CLASSIFICATION_MODEL = { value = var.classification_model }
     LINEAR_CLIENT_ID     = { value = var.linear_client_id }
+    PREVIEW_FEEDBACK_ORGANIZATION_ID = { value = var.preview_feedback_organization_id }
+    PREVIEW_FEEDBACK_TEAM_ID         = { value = var.preview_feedback_team_id }
+    PREVIEW_FEEDBACK_PROJECT_ID      = { value = var.preview_feedback_project_id }
+    PREVIEW_FEEDBACK_ALLOWED_REPOSITORIES = { value = join(",", var.preview_feedback_allowed_repositories) }
+    PREVIEW_FEEDBACK_ALLOWED_PORTAL_ORIGINS = { value = join(",", var.preview_feedback_allowed_portal_origins) }
     WORKER_URL           = { value = "https://open-inspect-linear-bot-${local.name_suffix}.${var.cloudflare_worker_subdomain}.workers.dev" }
   }
 
@@ -55,6 +60,7 @@ module "linear_bot_worker" {
       LINEAR_WEBHOOK_SECRET = { value = var.linear_webhook_secret }
       LINEAR_CLIENT_SECRET  = { value = var.linear_client_secret }
       SERVICE_AUTH_SECRET   = { value = random_password.service_auth_secret_linear_bot.result }
+      PREVIEW_FEEDBACK_HMAC_SECRET = { value = var.preview_feedback_hmac_secret }
       LINEAR_API_KEY        = { value = var.linear_api_key }
     },
     local.classifier_secret_bindings

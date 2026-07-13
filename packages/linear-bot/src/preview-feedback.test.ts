@@ -1,0 +1,193 @@
+import { Hono } from "hono";
+import { describe, expect, it, vi } from "vitest";
+
+import { createFakeKV, makeLinearBotEnv } from "./test-helpers";
+import type { Env } from "./types";
+import { handlePreviewFeedbackIngest, issueDescription, issueTitle } from "./preview-feedback";
+
+const SECRET = "preview-feedback-test-secret-at-least-thirty-two-bytes";
+const NOW_MS = Date.parse("2026-07-13T16:00:00.000Z");
+const TIMESTAMP = String(Math.floor(NOW_MS / 1000));
+const NONCE = "2151ad88-256c-4fae-98e0-208622409a39";
+const IDEMPOTENCY = "14620613-a657-421b-9165-30abc0b4d1d3";
+const ORIGIN = "https://opsdna-portal-pr-1548.example.workers.dev";
+
+function payload() {
+  return {
+    schemaVersion: 1,
+    action: "track",
+    comment: "Increase the spacing around this card.",
+    feedbackId: "b94f1c20-b3af-41ca-948e-c8a8c2f47678",
+    idempotencyKey: IDEMPOTENCY,
+    submittedAt: "2026-07-13T16:00:00.000Z",
+    reporter: { identityId: "identity:evan", displayName: "Evan Rosenfeld" },
+    deployment: {
+      kind: "feature_preview",
+      repository: "opsdna/opsdna",
+      prNumber: 1548,
+      branch: "codex/preview-feedback-react-grab-spike",
+      commitSha: "a".repeat(40),
+      portalUrl: ORIGIN,
+    },
+    page: { url: `${ORIGIN}/funds/fund_demo`, path: "/funds/fund_demo" },
+    selection: {
+      componentName: "FundGpCard",
+      source: { file: "apps/portal/src/fund-gp-card.tsx", line: 16 },
+      tagName: "div",
+      id: "gp-card",
+      testId: "fund-gp-card",
+      classNames: ["grid", "gap-4", "border"],
+      ancestors: [
+        { tagName: "section", classNames: ["space-y-6", "px-5"] },
+        { tagName: "main", id: "fund-main", classNames: ["min-w-0"] },
+      ],
+      accessibleName: "General partner not set up",
+      boundingRect: { x: 301, y: 299, width: 1026, height: 66 },
+    },
+  } as const;
+}
+
+function app(
+  createLinearIssue = vi.fn(async () => ({
+    id: "issue-id",
+    identifier: "OPS-999",
+    url: "https://linear.app/opsdna/issue/OPS-999",
+  }))
+) {
+  const instance = new Hono<{ Bindings: Env }>();
+  instance.post("/preview-feedback/ingest", (c) =>
+    handlePreviewFeedbackIngest(c, {
+      now: () => NOW_MS,
+      createLinearIssue,
+    })
+  );
+  return { instance, createLinearIssue };
+}
+
+function env(kv: KVNamespace): Env {
+  return makeLinearBotEnv(kv, {
+    PREVIEW_FEEDBACK_HMAC_SECRET: SECRET,
+    PREVIEW_FEEDBACK_ORGANIZATION_ID: "linear-org",
+    PREVIEW_FEEDBACK_TEAM_ID: "linear-team",
+    PREVIEW_FEEDBACK_ALLOWED_REPOSITORIES: "opsdna/opsdna",
+    PREVIEW_FEEDBACK_ALLOWED_PORTAL_ORIGINS: ORIGIN,
+  });
+}
+
+async function signedRequest(
+  body: string,
+  overrides: Record<string, string> = {}
+): Promise<Request> {
+  const bodyHash = await sha256(body);
+  const signature = await hmac(`v1\n${TIMESTAMP}\n${NONCE}\n${bodyHash}`);
+  return new Request("https://linear-bot.example/preview-feedback/ingest", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": IDEMPOTENCY,
+      "x-opsdna-feedback-timestamp": TIMESTAMP,
+      "x-opsdna-feedback-nonce": NONCE,
+      "x-opsdna-feedback-signature": `v1=${signature}`,
+      ...overrides,
+    },
+    body,
+  });
+}
+
+describe("POST /preview-feedback/ingest", () => {
+  it("creates a Linear issue and stores a retry-safe response", async () => {
+    const { kv, putCalls } = createFakeKV();
+    const { instance, createLinearIssue } = app();
+    const body = JSON.stringify(payload());
+    const response = await instance.fetch(await signedRequest(body), env(kv));
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      feedbackId: payload().feedbackId,
+      linearIssue: {
+        id: "issue-id",
+        identifier: "OPS-999",
+        url: "https://linear.app/opsdna/issue/OPS-999",
+      },
+      agent: { status: "not_requested" },
+    });
+    expect(createLinearIssue).toHaveBeenCalledOnce();
+    expect(putCalls.map((call) => call.key)).toEqual([
+      `preview-feedback:nonce:${NONCE}`,
+      `preview-feedback:idempotency:${IDEMPOTENCY}`,
+    ]);
+  });
+
+  it("returns the stored response without creating a duplicate issue", async () => {
+    const stored = JSON.stringify({
+      feedbackId: payload().feedbackId,
+      linearIssue: { id: "issue-id", identifier: "OPS-999", url: "https://linear.app/x" },
+      agent: { status: "not_requested" },
+    });
+    const { kv } = createFakeKV({
+      [`preview-feedback:idempotency:${IDEMPOTENCY}`]: stored,
+    });
+    const { instance, createLinearIssue } = app();
+    const response = await instance.fetch(await signedRequest(JSON.stringify(payload())), env(kv));
+    expect(response.status).toBe(201);
+    expect(await response.text()).toBe(stored);
+    expect(createLinearIssue).not.toHaveBeenCalled();
+  });
+
+  it("rejects a modified body and disallowed repository", async () => {
+    const { kv } = createFakeKV();
+    const { instance, createLinearIssue } = app();
+    const original = JSON.stringify(payload());
+    const modified = original.replace("opsdna/opsdna", "attacker/repository");
+    const badSignature = await instance.fetch(
+      await signedRequest(original, {
+        "x-opsdna-feedback-signature": "v1=deadbeef",
+      }),
+      env(kv)
+    );
+    expect(badSignature.status).toBe(401);
+
+    const disallowed = await instance.fetch(await signedRequest(modified), env(kv));
+    expect(disallowed.status).toBe(403);
+    expect(await disallowed.json()).toMatchObject({ reason: "repository_not_allowed" });
+    expect(createLinearIssue).not.toHaveBeenCalled();
+  });
+});
+
+describe("preview feedback Linear formatting", () => {
+  it("includes source, selected classes, and nearest DOM ancestors", () => {
+    const envelope = payload();
+    expect(issueTitle(envelope)).toBe(
+      "[UI feedback] FundGpCard: Increase the spacing around this card."
+    );
+    const description = issueDescription(envelope);
+    expect(description).toContain("CSS classes: `grid`, `gap-4`, `border`");
+    expect(description).toContain('div#gp-card.grid.gap-4.border[data-testid="fund-gp-card"]');
+    expect(description).toContain("section.space-y-6.px-5");
+    expect(description).toContain("main#fund-main.min-w-0");
+    expect(description).toContain("apps/portal/src/fund-gp-card.tsx:16");
+  });
+});
+
+async function sha256(value: string): Promise<string> {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(bytes)].map(hex).join("");
+}
+
+async function hmac(value: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(value)))]
+    .map(hex)
+    .join("");
+}
+
+function hex(byte: number): string {
+  return byte.toString(16).padStart(2, "0");
+}
