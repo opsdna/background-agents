@@ -74,10 +74,53 @@ export interface LinearApiClient {
   renewAccessToken: () => Promise<string>;
 }
 
+export interface CreatedLinearIssue {
+  id: string;
+  identifier: string;
+  url: string;
+}
+
+export async function createIssue(
+  client: LinearApiClient,
+  input: {
+    teamId: string;
+    title: string;
+    description: string;
+    projectId?: string;
+  }
+): Promise<CreatedLinearIssue> {
+  const result = await linearGraphQL(
+    client,
+    `
+      mutation PreviewFeedbackIssueCreate($input: IssueCreateInput!) {
+        issueCreate(input: $input) {
+          success
+          issue { id identifier url }
+        }
+      }
+    `,
+    {
+      input: {
+        teamId: input.teamId,
+        title: input.title,
+        description: input.description,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+      },
+    }
+  );
+  const issue = (
+    result as {
+      data?: { issueCreate?: { success?: boolean; issue?: CreatedLinearIssue } };
+    }
+  ).data?.issueCreate;
+  if (!issue?.success || !issue.issue) throw new Error("Linear issue creation failed");
+  return issue.issue;
+}
+
 export async function getLinearClient(
   env: Env,
   orgId: string,
-  expectedAppUserId: string
+  expectedAppUserId?: string
 ): Promise<LinearApiClient | null> {
   try {
     return await getLinearClientOrThrow(env, orgId, expectedAppUserId);
@@ -90,7 +133,7 @@ export async function getLinearClient(
 export async function getLinearClientOrThrow(
   env: Env,
   orgId: string,
-  expectedAppUserId: string
+  expectedAppUserId?: string
 ): Promise<LinearApiClient> {
   return {
     accessToken: await getClientCredentialsTokenOrThrow(env, orgId, { expectedAppUserId }),

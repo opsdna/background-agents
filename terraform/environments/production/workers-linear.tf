@@ -49,6 +49,11 @@ module "linear_bot_worker" {
     { name = "DEFAULT_MODEL", value = "openai/gpt-5.5" },
     { name = "CLASSIFICATION_MODEL", value = var.classification_model },
     { name = "LINEAR_CLIENT_ID", value = var.linear_client_id },
+    { name = "PREVIEW_FEEDBACK_ORGANIZATION_ID", value = var.preview_feedback_organization_id },
+    { name = "PREVIEW_FEEDBACK_TEAM_ID", value = var.preview_feedback_team_id },
+    { name = "PREVIEW_FEEDBACK_PROJECT_ID", value = var.preview_feedback_project_id },
+    { name = "PREVIEW_FEEDBACK_ALLOWED_REPOSITORIES", value = join(",", var.preview_feedback_allowed_repositories) },
+    { name = "PREVIEW_FEEDBACK_ALLOWED_PORTAL_ORIGINS", value = join(",", var.preview_feedback_allowed_portal_origins) },
     { name = "WORKER_URL", value = "https://open-inspect-linear-bot-${local.name_suffix}.${var.cloudflare_worker_subdomain}.workers.dev" },
   ]
 
@@ -57,6 +62,7 @@ module "linear_bot_worker" {
       { name = "LINEAR_WEBHOOK_SECRET", value = var.linear_webhook_secret },
       { name = "LINEAR_CLIENT_SECRET", value = var.linear_client_secret },
       { name = "SERVICE_AUTH_SECRET", value = random_password.service_auth_secret_linear_bot.result },
+      { name = "PREVIEW_FEEDBACK_HMAC_SECRET", value = var.preview_feedback_hmac_secret },
       { name = "LINEAR_API_KEY", value = var.linear_api_key },
     ],
     local.classifier_secret_bindings
