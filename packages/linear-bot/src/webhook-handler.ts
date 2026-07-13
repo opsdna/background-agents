@@ -494,6 +494,7 @@ async function handleNewSession(
     projectInfo,
     comment,
     traceId,
+    issueDescription: issueDetails?.description,
   });
   if (!resolved) return;
 
