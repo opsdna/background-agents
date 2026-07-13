@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFakeKV, makeLinearBotEnv } from "./test-helpers";
 import type { Env } from "./types";
 import {
+  activatePreviewAgent,
   createPreviewFeedbackIssue,
   handlePreviewFeedbackIngest,
   issueDescription,
@@ -59,13 +60,15 @@ function app(
     id: "issue-id",
     identifier: "OPS-999",
     url: "https://linear.app/opsdna/issue/OPS-999",
-  }))
+  })),
+  activateAgent?: () => Promise<{ status: "started"; sessionUrl: string }>
 ) {
   const instance = new Hono<{ Bindings: Env }>();
   instance.post("/preview-feedback/ingest", (c) =>
     handlePreviewFeedbackIngest(c, {
       now: () => NOW_MS,
       createLinearIssue,
+      ...(activateAgent ? { activateAgent } : {}),
     })
   );
   return { instance, createLinearIssue };
@@ -210,6 +213,22 @@ describe("POST /preview-feedback/ingest", () => {
     expect(response.status).toBe(400);
     expect(createLinearIssue).not.toHaveBeenCalled();
   });
+
+  it("returns the proactive session result for fix requests", async () => {
+    const { kv } = createFakeKV();
+    const activateAgent = vi.fn(async () => ({
+      status: "started" as const,
+      sessionUrl: "https://linear.app/agent/session",
+    }));
+    const { instance } = app(undefined, activateAgent);
+    const fixPayload = { ...payload(), action: "fix" as const };
+    const response = await instance.fetch(await signedRequest(JSON.stringify(fixPayload)), env(kv));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      agent: { status: "started", sessionUrl: "https://linear.app/agent/session" },
+    });
+    expect(activateAgent).toHaveBeenCalledOnce();
+  });
 });
 
 describe("preview feedback Linear formatting", () => {
@@ -297,6 +316,63 @@ describe("preview feedback parent channel", () => {
     expect(parentInput.title).toBe("[Preview PR #1548] UI feedback channel");
     expect(childInput.parentId).toBe("parent-id");
     expect(controlPlaneFetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("preview feedback agent reuse", () => {
+  it("queues later feedback into the registered Open Inspect session", async () => {
+    const { kv } = createFakeKV({
+      "oauth:token:linear-org": JSON.stringify({
+        access_token: "linear-token",
+        refresh_token: "refresh-token",
+        expires_at: Date.now() + 10 * 60 * 1000,
+      }),
+    });
+    const controlPlaneFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          claimed: true,
+          channel: {
+            parentLinearIssueId: "parent-id",
+            parentLinearIssueIdentifier: "OPS-1000",
+            linearAgentSessionId: "linear-agent-session",
+            openInspectSessionId: "open-inspect-session",
+          },
+        })
+      )
+      .mockResolvedValueOnce(Response.json({ accepted: true }))
+      .mockResolvedValueOnce(
+        Response.json({
+          channel: {
+            parentLinearIssueId: "parent-id",
+            parentLinearIssueIdentifier: "OPS-1000",
+          },
+        })
+      );
+    const configured = env(kv);
+    configured.INTERNAL_CALLBACK_SECRET = "internal-secret";
+    configured.CONTROL_PLANE = { fetch: controlPlaneFetch } as unknown as Fetcher;
+
+    await expect(
+      activatePreviewAgent(
+        configured,
+        { ...payload(), action: "fix" },
+        {
+          id: "child-id",
+          identifier: "OPS-1001",
+          url: "https://linear.app/opsdna/issue/OPS-1001",
+        }
+      )
+    ).resolves.toEqual({
+      status: "queued",
+      sessionUrl: "https://web.example.test/session/open-inspect-session",
+    });
+    const promptRequest = controlPlaneFetch.mock.calls[1]![1] as RequestInit;
+    const prompt = JSON.parse(String(promptRequest.body));
+    expect(prompt.source).toBe("linear-preview-feedback");
+    expect(prompt.content).toContain("<untrusted-preview-feedback>");
+    expect(prompt.content).toContain("Increase the spacing around this card.");
   });
 });
 
