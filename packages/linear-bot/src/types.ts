@@ -122,6 +122,7 @@ export const issueSessionSchema = z.object({
   /** Set for repository sessions; absent for environment sessions. */
   repoOwner: z.string().optional(),
   repoName: z.string().optional(),
+  baseBranch: z.string().optional(),
   /** Set for environment sessions. */
   environmentId: z.string().optional(),
   model: z.string(),
