@@ -34,6 +34,13 @@ export interface Env {
   LINEAR_API_KEY?: string; // kept for backward compat / fallback
   ANTHROPIC_API_KEY: string;
   SERVICE_AUTH_SECRET?: string; // Per-service sig1 signing secret; also verifies CP callbacks
+  INTERNAL_CALLBACK_SECRET?: string;
+  PREVIEW_FEEDBACK_HMAC_SECRET?: string;
+  PREVIEW_FEEDBACK_ORGANIZATION_ID?: string;
+  PREVIEW_FEEDBACK_TEAM_ID?: string;
+  PREVIEW_FEEDBACK_PROJECT_ID?: string;
+  PREVIEW_FEEDBACK_ALLOWED_REPOSITORIES?: string;
+  PREVIEW_FEEDBACK_ALLOWED_PORTAL_ORIGINS?: string;
   LOG_LEVEL?: string;
 }
 
