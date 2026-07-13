@@ -16,6 +16,7 @@ import {
   linearIdentityResponse,
   makeLinearBotEnv,
 } from "./test-helpers";
+import { storePreviewFeedbackDispatch } from "./preview-feedback-dispatch";
 
 describe("escapeHtml", () => {
   it("escapes & to &amp;", () => {
@@ -785,6 +786,36 @@ describe("handleAgentSessionEvent environment targets", () => {
       String(input).endsWith("/prompt")
     );
     expect(JSON.parse(String(promptCall?.[1]?.body))).not.toHaveProperty("authorId");
+  });
+  it("launches preview feedback on its trusted branch with the research profile", async () => {
+    const { kv, store } = createFakeKV({ "oauth:token:org-1": validToken() });
+    const env = makeLinearBotEnv(kv);
+    await storePreviewFeedbackDispatch(env, "issue-1", {
+      profile: "research",
+      repository: "opsdna/opsdna",
+      baseBranch: "codex/preview-feedback",
+    });
+    const fetchMock = stubControlPlane(env);
+
+    await handleAgentSessionEvent(makeWebhook(), env, "trace-preview-feedback");
+
+    expect(createSessionBody(fetchMock)).toMatchObject({
+      repoOwner: "opsdna",
+      repoName: "opsdna",
+      baseBranch: "codex/preview-feedback",
+    });
+    const promptCall = fetchMock.mock.calls.find(
+      ([input]) => String(input) === "https://internal/sessions/session-xyz/prompt"
+    );
+    const prompt = JSON.parse(String((promptCall?.[1] as RequestInit).body)).content as string;
+    expect(prompt).toContain("Trusted OpsDNA agent profile: Research");
+    expect(prompt).toContain("Do not modify files");
+    expect(prompt).toContain("explicit greenlight");
+    expect(JSON.parse(store.get("issue:issue-1") ?? "null")).toMatchObject({
+      repoOwner: "opsdna",
+      repoName: "opsdna",
+      baseBranch: "codex/preview-feedback",
+    });
   });
 });
 

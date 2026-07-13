@@ -35,6 +35,7 @@ import {
   type SessionTarget,
 } from "./target-resolution";
 import { getUserPreferences, lookupIssueSession, storeIssueSession } from "./kv-store";
+import { previewFeedbackProfileInstructions } from "./preview-feedback-dispatch";
 
 const log = createLogger("handler");
 
@@ -145,6 +146,7 @@ async function createSession(
     actorUserId?: string;
     actorDisplayName?: string;
     actorEmail?: string;
+    baseBranch?: string;
   },
   traceId?: string
 ): Promise<{ ok: true; sessionId: string } | { ok: false; status: number; body: string }> {
@@ -495,7 +497,12 @@ async function handleNewSession(
   });
   if (!resolved) return;
 
-  const { target, reasoning: classificationReasoning } = resolved;
+  const {
+    target,
+    reasoning: classificationReasoning,
+    baseBranch,
+    previewFeedbackProfile,
+  } = resolved;
   const label = targetLabel(target);
 
   const integration = await resolveTargetIntegration(env, target);
@@ -568,6 +575,7 @@ async function handleNewSession(
       actorUserId: sessionActorUserId,
       actorDisplayName,
       actorEmail,
+      ...(baseBranch ? { baseBranch } : {}),
     },
     traceId
   );
@@ -602,43 +610,12 @@ async function handleNewSession(
     sessionId: session.sessionId,
     issueId: issue.id,
     issueIdentifier: issue.identifier,
-    ...(target.kind === "environment"
-      ? { environmentId: target.environment.id }
-      : {
-          repoOwner: target.owner,
-          repoName: target.name,
-          ...(target.baseBranch ? { baseBranch: target.baseBranch } : {}),
-        }),
+    ...targetRequestFields(target),
+    ...(baseBranch ? { baseBranch } : {}),
     model,
     agentSessionId,
     createdAt: Date.now(),
   });
-
-  const previewChannelKey = await env.LINEAR_KV.get(`preview-feedback:parent:${issue.id}`);
-  if (previewChannelKey) {
-    const attachResponse = await env.CONTROL_PLANE.fetch(
-      "https://internal/preview-feedback/channels/attach-session",
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          parentLinearIssueId: issue.id,
-          linearAgentSessionId: agentSessionId,
-          openInspectSessionId: session.sessionId,
-          now: Date.now(),
-        }),
-      }
-    );
-    if (!attachResponse.ok) {
-      log.error("preview_feedback.channel_session_attach_failed", {
-        trace_id: traceId,
-        linear_issue_id: issue.id,
-        agent_session_id: agentSessionId,
-        session_id: session.sessionId,
-        http_status: attachResponse.status,
-      });
-    }
-  }
 
   // Set externalUrls and update plan
   await updateAgentSession(client, agentSessionId, {
@@ -657,6 +634,14 @@ async function handleNewSession(
 
   if (integrationConfig.issueSessionInstructions) {
     prompt += `\n\n## Additional Instructions\n\n${integrationConfig.issueSessionInstructions}`;
+  }
+
+  if (previewFeedbackProfile && target.kind === "repository" && baseBranch) {
+    prompt += `\n\n${previewFeedbackProfileInstructions({
+      profile: previewFeedbackProfile,
+      repository: target.fullName,
+      baseBranch,
+    })}`;
   }
 
   const promptUrl = `https://internal/sessions/${session.sessionId}/prompt`;
