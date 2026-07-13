@@ -483,6 +483,77 @@ describe("preview feedback agent reuse", () => {
       body: "Added to the active Open Inspect session: https://web.example.test/session/open-inspect-session",
     });
   });
+
+  it("waits for a concurrent activation and then queues into its attached session", async () => {
+    const { kv } = createFakeKV({
+      "oauth:token:linear-org": JSON.stringify({
+        access_token: "linear-token",
+        refresh_token: "refresh-token",
+        expires_at: Date.now() + 10 * 60 * 1000,
+      }),
+    });
+    const provisioningChannel = {
+      parentLinearIssueId: "parent-id",
+      parentLinearIssueIdentifier: "OPS-1000",
+      linearAgentSessionId: "linear-agent-session",
+      openInspectSessionId: null,
+    };
+    const attachedChannel = {
+      ...provisioningChannel,
+      openInspectSessionId: "open-inspect-session",
+    };
+    const controlPlaneFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ claimed: false, channel: provisioningChannel }, { status: 409 })
+      )
+      .mockResolvedValueOnce(Response.json({ channel: attachedChannel }))
+      .mockResolvedValueOnce(Response.json({ claimed: true, channel: attachedChannel }))
+      .mockResolvedValueOnce(
+        Response.json({
+          channel: {
+            ...attachedChannel,
+            baseSha: "b".repeat(40),
+            sessionSyncedSha: "b".repeat(40),
+          },
+        })
+      )
+      .mockResolvedValueOnce(Response.json({ accepted: true }))
+      .mockResolvedValueOnce(Response.json({ channel: attachedChannel }));
+    const configured = env(kv);
+    configured.INTERNAL_CALLBACK_SECRET = "internal-secret";
+    configured.CONTROL_PLANE = { fetch: controlPlaneFetch } as unknown as Fetcher;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ data: { commentCreate: { success: true } } }))
+    );
+    const sleep = vi.fn(async () => undefined);
+
+    await expect(
+      activatePreviewAgent(
+        configured,
+        { ...payload(), action: "fix" },
+        {
+          id: "child-id",
+          identifier: "OPS-1002",
+          url: "https://linear.app/opsdna/issue/OPS-1002",
+        },
+        { sleep }
+      )
+    ).resolves.toEqual({
+      status: "queued",
+      sessionUrl: "https://web.example.test/session/open-inspect-session",
+    });
+    expect(sleep).toHaveBeenCalledOnce();
+    expect(controlPlaneFetch.mock.calls.map(([url]) => url)).toEqual([
+      "https://internal/preview-feedback/channels/claim",
+      "https://internal/preview-feedback/channels/get",
+      "https://internal/preview-feedback/channels/claim",
+      "https://internal/preview-feedback/channels/resolve-base",
+      "https://internal/sessions/open-inspect-session/prompt",
+      "https://internal/preview-feedback/channels/update",
+    ]);
+  });
 });
 
 async function sha256(value: string): Promise<string> {
