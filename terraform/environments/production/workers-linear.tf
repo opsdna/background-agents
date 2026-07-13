@@ -48,6 +48,11 @@ module "linear_bot_worker" {
     { name = "APP_NAME", value = var.app_name },
     { name = "DEFAULT_MODEL", value = "openai/gpt-5.5" },
     { name = "LINEAR_CLIENT_ID", value = var.linear_client_id },
+    { name = "PREVIEW_FEEDBACK_ORGANIZATION_ID", value = var.preview_feedback_organization_id },
+    { name = "PREVIEW_FEEDBACK_TEAM_ID", value = var.preview_feedback_team_id },
+    { name = "PREVIEW_FEEDBACK_PROJECT_ID", value = var.preview_feedback_project_id },
+    { name = "PREVIEW_FEEDBACK_ALLOWED_REPOSITORIES", value = join(",", var.preview_feedback_allowed_repositories) },
+    { name = "PREVIEW_FEEDBACK_ALLOWED_PORTAL_ORIGINS", value = join(",", var.preview_feedback_allowed_portal_origins) },
     { name = "WORKER_URL", value = "https://open-inspect-linear-bot-${local.name_suffix}.${var.cloudflare_worker_subdomain}.workers.dev" },
   ]
 
@@ -57,6 +62,7 @@ module "linear_bot_worker" {
     { name = "INTERNAL_CALLBACK_SECRET", value = var.internal_callback_secret },
     { name = "ANTHROPIC_API_KEY", value = var.anthropic_api_key },
     { name = "LINEAR_API_KEY", value = var.linear_api_key },
+    { name = "PREVIEW_FEEDBACK_HMAC_SECRET", value = var.preview_feedback_hmac_secret },
   ]
 
   compatibility_date  = "2024-09-23"

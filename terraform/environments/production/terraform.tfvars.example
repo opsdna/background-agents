@@ -191,6 +191,15 @@ enable_linear_bot = false
 linear_client_id = ""        # OAuth Application Client ID
 linear_client_secret = ""    # OAuth Application Client Secret
 linear_webhook_secret = ""   # Webhook Signing Secret from the application config
+preview_feedback_hmac_secret = "" # Dedicated 32+ byte secret shared only with OpsDNA portal Workers
+preview_feedback_organization_id = ""
+preview_feedback_team_id = ""
+preview_feedback_project_id = "" # Optional
+preview_feedback_allowed_repositories = ["opsdna/opsdna"]
+preview_feedback_allowed_portal_origins = [
+  "https://staging-app.opsdna.ai",
+  "https://opsdna-portal-pr-*.YOUR-WORKERS-SUBDOMAIN.workers.dev",
+]
 
 # =============================================================================
 # API Keys
