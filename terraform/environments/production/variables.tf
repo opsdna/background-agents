@@ -273,6 +273,43 @@ variable "linear_webhook_secret" {
   sensitive   = true
 }
 
+variable "preview_feedback_hmac_secret" {
+  description = "Dedicated HMAC secret authenticating OpsDNA preview feedback ingestion"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "preview_feedback_organization_id" {
+  description = "Linear organization receiving OpsDNA preview feedback"
+  type        = string
+  default     = ""
+}
+
+variable "preview_feedback_team_id" {
+  description = "Linear team receiving OpsDNA preview feedback issues"
+  type        = string
+  default     = ""
+}
+
+variable "preview_feedback_project_id" {
+  description = "Optional Linear project receiving OpsDNA preview feedback issues"
+  type        = string
+  default     = ""
+}
+
+variable "preview_feedback_allowed_repositories" {
+  description = "Repositories accepted by the signed preview feedback endpoint"
+  type        = list(string)
+  default     = []
+}
+
+variable "preview_feedback_allowed_portal_origins" {
+  description = "Portal origins accepted by the signed preview feedback endpoint"
+  type        = list(string)
+  default     = []
+}
+
 variable "linear_api_key" {
   description = "Linear API key for fallback comment posting"
   type        = string
