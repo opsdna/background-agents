@@ -28,6 +28,7 @@ import {
   isDuplicateEvent,
 } from "./kv-store";
 import { handlePreviewFeedbackIngest } from "./preview-feedback";
+import { handlePreviewFeedbackClose } from "./preview-feedback-close";
 
 // Re-export pure functions for existing test imports
 export {
@@ -85,6 +86,7 @@ app.get("/health", (c) => {
 });
 
 app.post("/preview-feedback/ingest", (c) => handlePreviewFeedbackIngest(c));
+app.post("/preview-feedback/close", (c) => handlePreviewFeedbackClose(c));
 
 // ─── OAuth Routes ────────────────────────────────────────────────────────────
 

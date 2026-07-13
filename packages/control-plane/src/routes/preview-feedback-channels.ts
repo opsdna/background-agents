@@ -4,7 +4,16 @@ import {
 } from "../db/preview-feedback-channels";
 import type { Env } from "../types";
 import { createSourceControlProviderFromEnv } from "../source-control/provider-from-env";
-import { error, json, parseJsonBody, parsePattern, type Route } from "./shared";
+import { SessionInternalPaths } from "../session/contracts";
+import { createSessionRuntimeClient } from "../session/runtime-client";
+import {
+  error,
+  json,
+  parseJsonBody,
+  parsePattern,
+  type RequestContext,
+  type Route,
+} from "./shared";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MIN_LEASE_MS = 5_000;
@@ -269,6 +278,65 @@ async function resolveBase(request: Request, env: Env): Promise<Response> {
   return updated ? json({ channel: updated }) : error("Preview feedback channel lease lost", 409);
 }
 
+async function closeChannel(request: Request, env: Env, ctx: RequestContext): Promise<Response> {
+  const body = await boundedBody<{
+    channelKey?: unknown;
+    repository?: unknown;
+    deploymentKind?: unknown;
+    previewId?: unknown;
+    prNumber?: unknown;
+    baseBranch?: unknown;
+    now?: unknown;
+  }>(request);
+  if (body instanceof Response) return body;
+  const channelKey = requiredString(body.channelKey, 1000);
+  const repository = requiredString(body.repository, 300);
+  const previewId = requiredString(body.previewId, 100);
+  const baseBranch = requiredString(body.baseBranch, 500);
+  const kind = body.deploymentKind;
+  if (
+    !channelKey ||
+    !repository ||
+    !previewId ||
+    !baseBranch ||
+    (kind !== "feature_preview" && kind !== "staging") ||
+    !(body.prNumber === null || safeInteger(body.prNumber)) ||
+    !safeInteger(body.now)
+  ) {
+    return error("Invalid preview feedback channel close", 400);
+  }
+
+  const channel = await new PreviewFeedbackChannelStore(env.DB).close({
+    channelKey,
+    repository,
+    deploymentKind: kind,
+    previewId,
+    prNumber: body.prNumber,
+    baseBranch,
+    now: body.now,
+  });
+  if (!channel) return json({ closed: false, sessionCleanup: "not_attached" });
+
+  let sessionCleanup: "not_attached" | "cancelled" | "already_terminal" | "failed" = "not_attached";
+  if (channel.openInspectSessionId) {
+    try {
+      const response = await createSessionRuntimeClient(env, ctx).fetch(
+        channel.openInspectSessionId,
+        SessionInternalPaths.cancel,
+        { method: "POST" }
+      );
+      sessionCleanup = response.ok
+        ? "cancelled"
+        : response.status === 409
+          ? "already_terminal"
+          : "failed";
+    } catch {
+      sessionCleanup = "failed";
+    }
+  }
+  return json({ closed: true, channel, sessionCleanup });
+}
+
 export const previewFeedbackChannelRoutes: Route[] = [
   {
     method: "POST",
@@ -299,5 +367,10 @@ export const previewFeedbackChannelRoutes: Route[] = [
     method: "POST",
     pattern: parsePattern("/preview-feedback/channels/resolve-base"),
     handler: (request, env) => resolveBase(request, env),
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/preview-feedback/channels/close"),
+    handler: (request, env, _match, ctx) => closeChannel(request, env, ctx),
   },
 ];
