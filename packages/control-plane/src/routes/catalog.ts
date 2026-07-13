@@ -22,6 +22,7 @@ import { keyboardShortcutRoutes } from "./keyboard-shortcuts";
 import { mcpServerRoutes } from "./mcp-servers";
 import { modelPreferencesRoutes } from "./model-preferences";
 import { modelProviderAccountRoutes } from "./model-provider-accounts";
+import { previewFeedbackChannelRoutes } from "./preview-feedback-channels";
 import { rbacRoutes } from "./rbac";
 import { reposRoutes } from "./repos";
 import { scmSettingsRoutes } from "./scm-settings";
@@ -84,6 +85,9 @@ export const catalog: readonly RouteModule[] = [
 
   // Pull request feedback Autofix activity
   autofixRoutes,
+
+  // Linear preview feedback channel registry
+  previewFeedbackChannelRoutes,
 
   // Installation-wide managed skills and personal profiles
   skillRoutes,
