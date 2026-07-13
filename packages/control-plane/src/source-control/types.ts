@@ -155,6 +155,11 @@ export interface RepositoryAccessResult {
 /**
  * A commit-ish resolved to the commit it names.
  */
+export interface BranchHead {
+  name: string;
+  sha: string;
+}
+
 export interface ResolvedCommit {
   /** Full commit SHA. */
   sha: string;

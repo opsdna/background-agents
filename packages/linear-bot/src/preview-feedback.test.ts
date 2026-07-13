@@ -320,6 +320,93 @@ describe("preview feedback parent channel", () => {
 });
 
 describe("preview feedback agent reuse", () => {
+  it("verifies the live base before creating the first Linear Agent Session", async () => {
+    const { kv } = createFakeKV({
+      "oauth:token:linear-org": JSON.stringify({
+        access_token: "linear-token",
+        refresh_token: "refresh-token",
+        expires_at: Date.now() + 10 * 60 * 1000,
+      }),
+    });
+    const controlPlaneFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          claimed: true,
+          channel: {
+            parentLinearIssueId: "parent-id",
+            parentLinearIssueIdentifier: "OPS-1000",
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          channel: {
+            parentLinearIssueId: "parent-id",
+            parentLinearIssueIdentifier: "OPS-1000",
+            baseSha: "c".repeat(40),
+            sessionSyncedSha: null,
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          channel: {
+            parentLinearIssueId: "parent-id",
+            linearAgentSessionId: "linear-agent-session",
+          },
+        })
+      );
+    const linearFetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ data: { commentCreate: { success: true } } }))
+      .mockResolvedValueOnce(
+        Response.json({
+          data: {
+            agentSessionCreateOnIssue: {
+              success: true,
+              agentSession: {
+                id: "linear-agent-session",
+                url: "https://linear.app/agent/session",
+                status: "pending",
+              },
+            },
+          },
+        })
+      )
+      .mockResolvedValueOnce(Response.json({ data: { commentCreate: { success: true } } }));
+    vi.stubGlobal("fetch", linearFetch);
+    const configured = env(kv);
+    configured.INTERNAL_CALLBACK_SECRET = "internal-secret";
+    configured.CONTROL_PLANE = { fetch: controlPlaneFetch } as unknown as Fetcher;
+
+    await expect(
+      activatePreviewAgent(
+        configured,
+        { ...payload(), action: "fix" },
+        {
+          id: "child-id",
+          identifier: "OPS-1001",
+          url: "https://linear.app/opsdna/issue/OPS-1001",
+        }
+      )
+    ).resolves.toEqual({
+      status: "started",
+      sessionUrl: "https://linear.app/agent/session",
+    });
+    expect(controlPlaneFetch.mock.calls[1]![0]).toBe(
+      "https://internal/preview-feedback/channels/resolve-base"
+    );
+    const comment = JSON.parse(String(linearFetch.mock.calls[0]![1]?.body)).variables.input.body;
+    expect(comment).toContain(`GitHub-verified base commit: ${"c".repeat(40)}`);
+    expect(comment).toContain("OPS-1001");
+    const childComment = JSON.parse(String(linearFetch.mock.calls[2]![1]?.body)).variables.input;
+    expect(childComment).toEqual({
+      issueId: "child-id",
+      body: "Open Inspect agent session started: https://linear.app/agent/session",
+    });
+  });
+
   it("queues later feedback into the registered Open Inspect session", async () => {
     const { kv } = createFakeKV({
       "oauth:token:linear-org": JSON.stringify({
@@ -341,6 +428,18 @@ describe("preview feedback agent reuse", () => {
           },
         })
       )
+      .mockResolvedValueOnce(
+        Response.json({
+          channel: {
+            parentLinearIssueId: "parent-id",
+            parentLinearIssueIdentifier: "OPS-1000",
+            linearAgentSessionId: "linear-agent-session",
+            openInspectSessionId: "open-inspect-session",
+            baseSha: "b".repeat(40),
+            sessionSyncedSha: "a".repeat(40),
+          },
+        })
+      )
       .mockResolvedValueOnce(Response.json({ accepted: true }))
       .mockResolvedValueOnce(
         Response.json({
@@ -353,6 +452,10 @@ describe("preview feedback agent reuse", () => {
     const configured = env(kv);
     configured.INTERNAL_CALLBACK_SECRET = "internal-secret";
     configured.CONTROL_PLANE = { fetch: controlPlaneFetch } as unknown as Fetcher;
+    const linearFetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ data: { commentCreate: { success: true } } }));
+    vi.stubGlobal("fetch", linearFetch);
 
     await expect(
       activatePreviewAgent(
@@ -368,11 +471,17 @@ describe("preview feedback agent reuse", () => {
       status: "queued",
       sessionUrl: "https://web.example.test/session/open-inspect-session",
     });
-    const promptRequest = controlPlaneFetch.mock.calls[1]![1] as RequestInit;
+    const promptRequest = controlPlaneFetch.mock.calls[2]![1] as RequestInit;
     const prompt = JSON.parse(String(promptRequest.body));
     expect(prompt.source).toBe("linear-preview-feedback");
     expect(prompt.content).toContain("<untrusted-preview-feedback>");
     expect(prompt.content).toContain("Increase the spacing around this card.");
+    expect(prompt.content).toContain(`GitHub-verified base commit: ${"b".repeat(40)}`);
+    expect(prompt.content).toContain("merge origin/codex/preview-feedback-react-grab-spike");
+    expect(JSON.parse(String(linearFetch.mock.calls[0]![1]?.body)).variables.input).toEqual({
+      issueId: "child-id",
+      body: "Added to the active Open Inspect session: https://web.example.test/session/open-inspect-session",
+    });
   });
 });
 
