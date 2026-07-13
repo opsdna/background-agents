@@ -20,7 +20,6 @@ export type {
   CreatePullRequestResult,
   PullRequestSnapshot,
   RepositoryAccessResult,
-  BranchHead,
   ResolvedCommit,
   RepositoryTree,
   RepositoryTreeEntry,

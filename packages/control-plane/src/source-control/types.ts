@@ -149,13 +149,6 @@ export interface RepositoryAccessResult {
   defaultBranch: string;
 }
 
-export interface BranchHead {
-  /** Branch name as resolved by the provider. */
-  name: string;
-  /** Full commit SHA at the branch head. */
-  sha: string;
-}
-
 /**
  * A commit-ish resolved to the commit it names.
  */
@@ -465,18 +458,9 @@ export interface SourceControlProvider {
    * @param config - PR identifier; include repositoryExternalId when known
    *   so a 404 triggers a resolve-by-id + single retry (rename tolerance)
    * @returns Current PR snapshot
-   * @throws SourceControlProviderError
-   */
+  * @throws SourceControlProviderError
+  */
   getPullRequest(config: GetPullRequestConfig): Promise<PullRequestSnapshot>;
-
-  /**
-   * Resolve a branch head with app-level credentials.
-   *
-   * Returns null when the repository or branch is not accessible. Callers use
-   * this to reject work derived from stale external metadata.
-   */
-  getBranchHead(config: GetRepositoryConfig & { branch: string }): Promise<BranchHead | null>;
-
   /**
    * Generate authentication for git push operations.
    *

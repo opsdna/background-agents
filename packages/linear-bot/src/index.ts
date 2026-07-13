@@ -18,7 +18,6 @@ import { resolveAppName } from "@open-inspect/shared/app-name";
 import { handleAgentSessionEvent, escapeHtml } from "./webhook-handler";
 import { isDuplicateEvent } from "./kv-store";
 import { handlePreviewFeedbackIngest } from "./preview-feedback";
-import { handlePreviewFeedbackClose } from "./preview-feedback-close";
 
 const log = createLogger("handler");
 
@@ -77,7 +76,6 @@ app.get("/health", (c) => {
 });
 
 app.post("/preview-feedback/ingest", (c) => handlePreviewFeedbackIngest(c));
-app.post("/preview-feedback/close", (c) => handlePreviewFeedbackClose(c));
 
 // ─── OAuth Routes ────────────────────────────────────────────────────────────
 

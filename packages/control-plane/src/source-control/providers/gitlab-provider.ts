@@ -156,11 +156,6 @@ const gitlabRepositoryListSchema = z.array(
   })
 );
 
-/** Wire shape of a GitLab branch response, limited to the head commit ID. */
-const gitlabBranchHeadSchema = z.object({
-  commit: z.object({ id: z.string().min(1) }),
-});
-
 /** Wire shape of list-branches results, limited to the branch name. */
 const gitlabBranchListSchema = z.array(z.object({ name: z.string() }));
 
@@ -573,41 +568,6 @@ export class GitLabSourceControlProvider implements SourceControlProvider {
       }
       throw SourceControlProviderError.fromFetchError(
         `Failed to list branches: ${error instanceof Error ? error.message : String(error)}`,
-        error
-      );
-    }
-  }
-
-  async getBranchHead(
-    config: GetRepositoryConfig & { branch: string }
-  ): Promise<{ name: string; sha: string } | null> {
-    const projectPath = encodeProjectPath(config.owner, config.name);
-    try {
-      const response = await fetchWithTimeout(
-        `${GITLAB_API_BASE}/projects/${projectPath}/repository/branches/${encodeURIComponent(config.branch)}`,
-        { headers: this.headers(this.accessToken) }
-      );
-      if (response.status === 404 || response.status === 403) return null;
-      if (!response.ok) {
-        const error = await response.text();
-        throw SourceControlProviderError.fromFetchError(
-          `Failed to resolve branch head: ${response.status} ${error}`,
-          new Error(error),
-          response.status
-        );
-      }
-      const data = (await response.json()) as { name?: unknown; commit?: { id?: unknown } };
-      if (typeof data.name !== "string" || typeof data.commit?.id !== "string") {
-        throw new SourceControlProviderError(
-          "Failed to resolve branch head: invalid response",
-          "permanent"
-        );
-      }
-      return { name: data.name, sha: data.commit.id };
-    } catch (error) {
-      if (error instanceof SourceControlProviderError) throw error;
-      throw SourceControlProviderError.fromFetchError(
-        `Failed to resolve branch head: ${error instanceof Error ? error.message : String(error)}`,
         error
       );
     }

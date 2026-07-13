@@ -130,6 +130,7 @@ export const issueSessionSchema = z.object({
   repoOwner: z.string().optional(),
   repoName: z.string().optional(),
   baseBranch: z.string().optional(),
+  /** Source branch the agent should inspect and target with its pull request. */
   /** Set for environment sessions. */
   environmentId: z.string().optional(),
   model: z.string(),
