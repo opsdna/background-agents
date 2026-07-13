@@ -9,6 +9,8 @@ import type { Env } from "../types";
 import { Hono } from "hono";
 import { parseJsonBody } from "./body";
 import { error, json, serviceAuthorized, type RequestContext } from "./shared";
+import { SessionInternalPaths } from "../session/contracts";
+import { createSessionRuntimeClient } from "../session/runtime-client";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MIN_LEASE_MS = 5_000;
@@ -309,4 +311,67 @@ previewFeedbackChannelRoutes.post(
   "/preview-feedback/channels/resolve-base",
   LINEAR_SERVICE,
   (c) => dispatch(c, (request, env, _params, ctx) => resolveBase(request, env, ctx))
+);
+async function closeChannel(request: Request, env: Env, ctx: RequestContext): Promise<Response> {
+  const body = await boundedBody<{
+    channelKey?: unknown;
+    repository?: unknown;
+    deploymentKind?: unknown;
+    previewId?: unknown;
+    prNumber?: unknown;
+    baseBranch?: unknown;
+    now?: unknown;
+  }>(request);
+  if (body instanceof Response) return body;
+  const channelKey = requiredString(body.channelKey, 1000);
+  const repository = requiredString(body.repository, 300);
+  const previewId = requiredString(body.previewId, 100);
+  const baseBranch = requiredString(body.baseBranch, 500);
+  const kind = body.deploymentKind;
+  if (
+    !channelKey ||
+    !repository ||
+    !previewId ||
+    !baseBranch ||
+    (kind !== "feature_preview" && kind !== "staging") ||
+    !(body.prNumber === null || safeInteger(body.prNumber)) ||
+    !safeInteger(body.now)
+  ) {
+    return error("Invalid preview feedback channel close", 400);
+  }
+
+  const channel = await new PreviewFeedbackChannelStore(ctx.db).close({
+    channelKey,
+    repository,
+    deploymentKind: kind,
+    previewId,
+    prNumber: body.prNumber,
+    baseBranch,
+    now: body.now,
+  });
+  if (!channel) return json({ closed: false, sessionCleanup: "not_attached" });
+
+  let sessionCleanup: "not_attached" | "cancelled" | "already_terminal" | "failed" = "not_attached";
+  if (channel.openInspectSessionId) {
+    try {
+      const response = await createSessionRuntimeClient(env, ctx).fetch(
+        channel.openInspectSessionId,
+        SessionInternalPaths.cancel,
+        { method: "POST" }
+      );
+      sessionCleanup = response.ok
+        ? "cancelled"
+        : response.status === 409
+          ? "already_terminal"
+          : "failed";
+    } catch {
+      sessionCleanup = "failed";
+    }
+  }
+  return json({ closed: true, channel, sessionCleanup });
+}
+previewFeedbackChannelRoutes.post(
+  "/preview-feedback/channels/close",
+  LINEAR_SERVICE,
+  (c) => dispatch(c, (request, env, _params, ctx) => closeChannel(request, env, ctx))
 );

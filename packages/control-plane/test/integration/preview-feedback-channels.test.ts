@@ -146,4 +146,46 @@ describe("preview feedback channel registry", () => {
       leaseOwner: "worker-a",
     });
   });
+
+  it("closes the exact preview channel and prevents it from being reclaimed", async () => {
+    await post("/preview-feedback/channels/claim", claimBody("worker-a"));
+    const response = await post("/preview-feedback/channels/close", {
+      channelKey: CHANNEL_KEY,
+      repository: "opsdna/opsdna",
+      deploymentKind: "feature_preview",
+      previewId: "pr-1548",
+      prNumber: 1548,
+      baseBranch: "codex/preview-feedback-react-grab-spike",
+      now: NOW + 1,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      closed: true,
+      channel: { status: "closed", leaseOwner: null, expiresAt: NOW + 1 },
+      sessionCleanup: "not_attached",
+    });
+
+    const reclaim = await post("/preview-feedback/channels/claim", {
+      ...claimBody("worker-b"),
+      now: NOW + 2,
+    });
+    expect(reclaim.status).toBe(409);
+  });
+
+  it("treats a close for a missing channel as an idempotent no-op", async () => {
+    const response = await post("/preview-feedback/channels/close", {
+      channelKey: CHANNEL_KEY,
+      repository: "opsdna/opsdna",
+      deploymentKind: "feature_preview",
+      previewId: "pr-1548",
+      prNumber: 1548,
+      baseBranch: "codex/preview-feedback-react-grab-spike",
+      now: NOW,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      closed: false,
+      sessionCleanup: "not_attached",
+    });
+  });
 });
