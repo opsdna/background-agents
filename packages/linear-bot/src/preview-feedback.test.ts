@@ -1,9 +1,14 @@
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFakeKV, makeLinearBotEnv } from "./test-helpers";
 import type { Env } from "./types";
-import { handlePreviewFeedbackIngest, issueDescription, issueTitle } from "./preview-feedback";
+import {
+  createPreviewFeedbackIssue,
+  handlePreviewFeedbackIngest,
+  issueDescription,
+  issueTitle,
+} from "./preview-feedback";
 
 const SECRET = "preview-feedback-test-secret-at-least-thirty-two-bytes";
 const NOW_MS = Date.parse("2026-07-13T16:00:00.000Z");
@@ -11,6 +16,8 @@ const TIMESTAMP = String(Math.floor(NOW_MS / 1000));
 const NONCE = "2151ad88-256c-4fae-98e0-208622409a39";
 const IDEMPOTENCY = "14620613-a657-421b-9165-30abc0b4d1d3";
 const ORIGIN = "https://opsdna-portal-pr-1548.example.workers.dev";
+
+afterEach(() => vi.unstubAllGlobals());
 
 function payload() {
   return {
@@ -217,6 +224,79 @@ describe("preview feedback Linear formatting", () => {
     expect(description).toContain("section.space-y-6.px-5");
     expect(description).toContain("main#fund-main.min-w-0");
     expect(description).toContain("apps/portal/src/fund-gp-card.tsx:16");
+  });
+});
+
+describe("preview feedback parent channel", () => {
+  it("registers one parent issue and creates feedback as its child", async () => {
+    const { kv } = createFakeKV({
+      "oauth:token:linear-org": JSON.stringify({
+        access_token: "linear-token",
+        refresh_token: "refresh-token",
+        expires_at: Date.now() + 10 * 60 * 1000,
+      }),
+    });
+    const controlPlaneFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          claimed: true,
+          channel: { parentLinearIssueId: null, parentLinearIssueIdentifier: null },
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          channel: {
+            parentLinearIssueId: "parent-id",
+            parentLinearIssueIdentifier: "OPS-1000",
+          },
+        })
+      );
+    const configured = env(kv);
+    configured.CONTROL_PLANE = { fetch: controlPlaneFetch } as unknown as Fetcher;
+    configured.INTERNAL_CALLBACK_SECRET = "internal-callback-secret";
+
+    const linearFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          data: {
+            issueCreate: {
+              success: true,
+              issue: {
+                id: "parent-id",
+                identifier: "OPS-1000",
+                url: "https://linear.app/opsdna/issue/OPS-1000",
+              },
+            },
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          data: {
+            issueCreate: {
+              success: true,
+              issue: {
+                id: "child-id",
+                identifier: "OPS-1001",
+                url: "https://linear.app/opsdna/issue/OPS-1001",
+              },
+            },
+          },
+        })
+      )
+      .mockResolvedValueOnce(Response.json({ data: { attachmentCreate: { success: true } } }));
+    vi.stubGlobal("fetch", linearFetch);
+
+    await expect(createPreviewFeedbackIssue(configured, payload())).resolves.toMatchObject({
+      id: "child-id",
+    });
+    const parentInput = JSON.parse(String(linearFetch.mock.calls[0]![1]?.body)).variables.input;
+    const childInput = JSON.parse(String(linearFetch.mock.calls[1]![1]?.body)).variables.input;
+    expect(parentInput.title).toBe("[Preview PR #1548] UI feedback channel");
+    expect(childInput.parentId).toBe("parent-id");
+    expect(controlPlaneFetch).toHaveBeenCalledTimes(2);
   });
 });
 
