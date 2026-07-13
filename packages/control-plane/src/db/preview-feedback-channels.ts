@@ -207,4 +207,27 @@ export class PreviewFeedbackChannelStore {
     if ((result.meta.changes ?? 0) === 0) return null;
     return this.get(input.channelKey);
   }
+
+  async attachOpenInspectSession(input: {
+    parentLinearIssueId: string;
+    linearAgentSessionId: string;
+    openInspectSessionId: string;
+    now: number;
+  }): Promise<PreviewFeedbackChannel | null> {
+    const result = await this.db
+      .prepare(
+        `UPDATE preview_feedback_channels SET
+           open_inspect_session_id = ?, status = 'agent_active', updated_at = ?
+         WHERE parent_linear_issue_id = ? AND linear_agent_session_id = ?`
+      )
+      .bind(
+        input.openInspectSessionId,
+        input.now,
+        input.parentLinearIssueId,
+        input.linearAgentSessionId
+      )
+      .run();
+    if ((result.meta.changes ?? 0) === 0) return null;
+    return this.getByParentIssue(input.parentLinearIssueId);
+  }
 }
