@@ -1,4 +1,5 @@
 import type { Env } from "./types";
+import { timingSafeEqual } from "@open-inspect/shared";
 
 export type PreviewFeedbackAgentProfile = "research" | "implement";
 
@@ -8,31 +9,28 @@ export interface PreviewFeedbackDispatch {
   baseBranch: string;
 }
 
-const TTL_SECONDS = 8 * 24 * 60 * 60;
-
-export async function storePreviewFeedbackDispatch(
-  env: Env,
-  issueId: string,
-  dispatch: PreviewFeedbackDispatch
-): Promise<void> {
-  await env.LINEAR_KV.put(key(issueId), JSON.stringify(dispatch), {
-    expirationTtl: TTL_SECONDS,
-  });
-}
-
 export async function getPreviewFeedbackDispatch(
   env: Env,
-  issueId: string
+  issueId: string,
+  description: string | null | undefined
 ): Promise<PreviewFeedbackDispatch | null> {
-  const raw = await env.LINEAR_KV.get(key(issueId));
-  if (!raw) return null;
+  const secret = env.PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET;
+  if (!secret || secret.length < 32 || !description) return null;
+  const match = description.match(
+    /<!-- opsdna-preview-dispatch:v1 payload=([A-Za-z0-9_-]+) signature=([0-9a-f]{64}) -->/u
+  );
+  if (!match) return null;
+  const [, payload, signature] = match;
+  const expected = await hmacHex(secret, payload!);
+  if (!timingSafeEqual(signature!, expected)) return null;
   let value: unknown;
   try {
-    value = JSON.parse(raw);
+    value = JSON.parse(base64UrlDecode(payload!));
   } catch {
     return null;
   }
   if (!isRecord(value)) return null;
+  if (value.version !== 1 || value.issueId !== issueId) return null;
   if (value.profile !== "research" && value.profile !== "implement") return null;
   if (
     typeof value.repository !== "string" ||
@@ -71,8 +69,25 @@ export function previewFeedbackProfileInstructions(dispatch: PreviewFeedbackDisp
   ].join("\n");
 }
 
-function key(issueId: string): string {
-  return `preview-feedback:dispatch:${issueId}`;
+async function hmacHex(secret: string, value: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const bytes = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function base64UrlDecode(value: string): string {
+  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  return new TextDecoder().decode(
+    Uint8Array.from(atob(padded), (character) => character.charCodeAt(0))
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
