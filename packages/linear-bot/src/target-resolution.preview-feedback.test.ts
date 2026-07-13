@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { storePreviewFeedbackDispatch } from "./preview-feedback-dispatch";
 import { resolveSessionTarget } from "./target-resolution";
 import { createFakeKV, makeLinearBotEnv } from "./test-helpers";
 
@@ -8,7 +7,10 @@ describe("preview feedback target resolution", () => {
   it("uses trusted issue dispatch before normal Linear repository classification", async () => {
     const { kv } = createFakeKV();
     const env = makeLinearBotEnv(kv);
-    await storePreviewFeedbackDispatch(env, "issue-id", {
+    env.PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET = "dispatch-secret-at-least-thirty-two-bytes";
+    const issueDescription = await signedMarker(env.PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET, {
+      version: 1,
+      issueId: "issue-id",
       profile: "research",
       repository: "opsdna/opsdna",
       baseBranch: "codex/preview-feedback",
@@ -32,6 +34,7 @@ describe("preview feedback target resolution", () => {
         projectInfo: null,
         comment: null,
         traceId: "trace-id",
+        issueDescription,
       })
     ).resolves.toEqual({
       target: {
@@ -47,3 +50,24 @@ describe("preview feedback target resolution", () => {
     expect(vi.mocked(env.CONTROL_PLANE.fetch)).not.toHaveBeenCalled();
   });
 });
+
+async function signedMarker(secret: string, value: Record<string, unknown>): Promise<string> {
+  const payload = btoa(JSON.stringify(value))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = [
+    ...new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(payload))),
+  ]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `<!-- opsdna-preview-dispatch:v1 payload=${payload} signature=${signature} -->`;
+}

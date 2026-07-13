@@ -1,42 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createAgentSessionOnIssue,
-  createIssueAttachment,
-  fetchUser,
-  getOAuthTokenOrThrow,
-  uploadLinearImage,
-} from "./linear-client";
+import { fetchUser, getOAuthTokenOrThrow } from "./linear-client";
 import type { LinearApiClient } from "./linear-client";
 import { createFakeKV, makeLinearBotEnv } from "../test-helpers";
 
 const client: LinearApiClient = { accessToken: "test-token" };
 const FRESH_TOKEN_EXPIRES_IN_MS = 10 * 60 * 1000;
 const EXPIRED_TOKEN_AGE_MS = 60 * 1000;
-
-describe("createAgentSessionOnIssue", () => {
-  it("assigns the Linear app by creating an agent session on the issue", async () => {
-    mockFetchResponse({
-      data: {
-        agentSessionCreateOnIssue: {
-          success: true,
-          agentSession: {
-            id: "agent-session-id",
-            url: "https://linear.app/agent/session",
-            status: "pending",
-          },
-        },
-      },
-    });
-
-    await expect(createAgentSessionOnIssue(client, "issue-id")).resolves.toEqual({
-      id: "agent-session-id",
-      url: "https://linear.app/agent/session",
-      status: "pending",
-    });
-    const [, init] = vi.mocked(fetch).mock.calls[0]!;
-    expect(JSON.parse(String(init?.body)).variables).toEqual({ input: { issueId: "issue-id" } });
-  });
-});
 
 function mockFetchResponse(data: unknown): void {
   vi.stubGlobal(
@@ -115,75 +84,6 @@ describe("fetchUser", () => {
 
     const result = await fetchUser(client, "user-1");
     expect(result).toBeNull();
-  });
-});
-
-describe("preview feedback Linear assets", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("requests a private upload and forwards the required storage headers", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: {
-              fileUpload: {
-                success: true,
-                uploadFile: {
-                  uploadUrl: "https://storage.example/upload",
-                  assetUrl: "https://uploads.linear.app/private/image",
-                  headers: [{ key: "x-upload-token", value: "signed" }],
-                },
-              },
-            },
-          }),
-      })
-      .mockResolvedValueOnce({ ok: true });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(
-      uploadLinearImage(client, {
-        mimeType: "image/png",
-        filename: "feedback.png",
-        bytes: new Uint8Array([1, 2, 3]),
-      })
-    ).resolves.toBe("https://uploads.linear.app/private/image");
-
-    const graphQlBody = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
-    expect(graphQlBody.variables).toEqual({
-      contentType: "image/png",
-      filename: "feedback.png",
-      size: 3,
-    });
-    const uploadInit = fetchMock.mock.calls[1]![1] as RequestInit;
-    expect(fetchMock.mock.calls[1]![0]).toBe("https://storage.example/upload");
-    expect(uploadInit.method).toBe("PUT");
-    expect(new Headers(uploadInit.headers).get("x-upload-token")).toBe("signed");
-  });
-
-  it("creates an idempotent issue attachment with metadata", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ data: { attachmentCreate: { success: true } } }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    await createIssueAttachment(client, {
-      issueId: "issue-id",
-      title: "Open preview",
-      subtitle: "PR #1548",
-      url: "https://preview.example/funds",
-      metadata: { feedbackId: "feedback-id", prNumber: 1548 },
-    });
-    const graphQlBody = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
-    expect(graphQlBody.variables.input).toMatchObject({
-      issueId: "issue-id",
-      url: "https://preview.example/funds",
-      metadata: { feedbackId: "feedback-id", prNumber: 1548 },
-    });
   });
 });
 

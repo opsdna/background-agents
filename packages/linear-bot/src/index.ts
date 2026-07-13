@@ -27,7 +27,6 @@ import {
   getUserPreferences,
   isDuplicateEvent,
 } from "./kv-store";
-import { handlePreviewFeedbackIngest } from "./preview-feedback";
 
 // Re-export pure functions for existing test imports
 export {
@@ -83,8 +82,6 @@ const app = new Hono<{ Bindings: Env }>();
 app.get("/health", (c) => {
   return c.json({ status: "healthy", service: "open-inspect-linear-bot" });
 });
-
-app.post("/preview-feedback/ingest", (c) => handlePreviewFeedbackIngest(c));
 
 // ─── OAuth Routes ────────────────────────────────────────────────────────────
 

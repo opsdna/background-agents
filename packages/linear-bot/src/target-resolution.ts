@@ -144,6 +144,7 @@ export interface ResolveSessionTargetParams {
   projectInfo: { id: string; name: string } | null | undefined;
   comment: { body: string } | null | undefined;
   traceId: string;
+  issueDescription?: string | null;
 }
 
 export interface ResolvedSessionTarget {
@@ -160,9 +161,23 @@ export interface ResolvedSessionTarget {
 export async function resolveSessionTarget(
   params: ResolveSessionTargetParams
 ): Promise<ResolvedSessionTarget | null> {
-  const { env, client, agentSessionId, issue, labelNames, projectInfo, comment, traceId } = params;
+  const {
+    env,
+    client,
+    agentSessionId,
+    issue,
+    labelNames,
+    projectInfo,
+    comment,
+    traceId,
+    issueDescription,
+  } = params;
 
-  const previewDispatch = await getPreviewFeedbackDispatch(env, issue.id);
+  const previewDispatch = await getPreviewFeedbackDispatch(
+    env,
+    issue.id,
+    issueDescription ?? issue.description
+  );
   if (previewDispatch) {
     const { owner, name } = splitRepoFullName(previewDispatch.repository);
     return {

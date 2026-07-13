@@ -60,11 +60,6 @@ output "linear_bot_oauth_authorize_url" {
   value       = var.enable_linear_bot ? "${module.linear_bot_worker[0].worker_url}/oauth/authorize" : null
 }
 
-output "linear_bot_preview_feedback_ingest_url" {
-  description = "Signed OpsDNA preview feedback ingest endpoint"
-  value       = var.enable_linear_bot ? "${module.linear_bot_worker[0].worker_url}/preview-feedback/ingest" : null
-}
-
 output "github_bot_worker_name" {
   description = "GitHub bot worker name"
   value       = var.enable_github_bot ? module.github_bot_worker[0].worker_name : null
