@@ -375,3 +375,25 @@ previewFeedbackChannelRoutes.post(
   LINEAR_SERVICE,
   (c) => dispatch(c, (request, env, _params, ctx) => closeChannel(request, env, ctx))
 );
+async function resetSession(request: Request, ctx: RequestContext): Promise<Response> {
+  const body = await boundedBody<{ channelKey?: unknown; leaseOwner?: unknown; now?: unknown }>(
+    request
+  );
+  if (body instanceof Response) return body;
+  const channelKey = requiredString(body.channelKey, 1000);
+  const leaseOwner = requiredString(body.leaseOwner);
+  if (!channelKey || !leaseOwner || !safeInteger(body.now)) {
+    return error("Invalid preview feedback session reset", 400);
+  }
+  const channel = await new PreviewFeedbackChannelStore(ctx.db).resetSession({
+    channelKey,
+    leaseOwner,
+    now: body.now,
+  });
+  return channel ? json({ channel }) : error("Preview feedback channel lease lost", 409);
+}
+previewFeedbackChannelRoutes.post(
+  "/preview-feedback/channels/reset-session",
+  LINEAR_SERVICE,
+  (c) => dispatch(c, (request, _env, _params, ctx) => resetSession(request, ctx))
+);

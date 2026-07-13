@@ -282,4 +282,23 @@ export class PreviewFeedbackChannelStore {
     if ((result.meta.changes ?? 0) === 0) return null;
     return this.get(input.channelKey);
   }
+
+  async resetSession(input: {
+    channelKey: string;
+    leaseOwner: string;
+    now: number;
+  }): Promise<PreviewFeedbackChannel | null> {
+    const result = await this.db
+      .prepare(
+        `UPDATE preview_feedback_channels SET
+           open_inspect_session_id = NULL, linear_agent_session_id = NULL,
+           session_synced_sha = NULL, status = 'provisioning', updated_at = ?
+         WHERE channel_key = ? AND lease_owner = ? AND lease_expires_at > ?
+           AND status NOT IN ('closed', 'expired')`
+      )
+      .bind(input.now, input.channelKey, input.leaseOwner, input.now)
+      .run();
+    if ((result.meta.changes ?? 0) === 0) return null;
+    return this.get(input.channelKey);
+  }
 }
