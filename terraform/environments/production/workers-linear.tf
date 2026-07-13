@@ -53,6 +53,8 @@ module "linear_bot_worker" {
     { name = "PREVIEW_FEEDBACK_PROJECT_ID", value = var.preview_feedback_project_id },
     { name = "PREVIEW_FEEDBACK_ALLOWED_REPOSITORIES", value = join(",", var.preview_feedback_allowed_repositories) },
     { name = "PREVIEW_FEEDBACK_ALLOWED_PORTAL_ORIGINS", value = join(",", var.preview_feedback_allowed_portal_origins) },
+    { name = "PREVIEW_FEEDBACK_REPORTER_LIMIT_PER_HOUR", value = tostring(var.preview_feedback_reporter_limit_per_hour) },
+    { name = "PREVIEW_FEEDBACK_CHANNEL_LIMIT_PER_HOUR", value = tostring(var.preview_feedback_channel_limit_per_hour) },
     { name = "WORKER_URL", value = "https://open-inspect-linear-bot-${local.name_suffix}.${var.cloudflare_worker_subdomain}.workers.dev" },
   ]
 

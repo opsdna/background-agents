@@ -200,6 +200,8 @@ preview_feedback_allowed_portal_origins = [
   "https://staging-app.opsdna.ai",
   "https://opsdna-portal-pr-*.YOUR-WORKERS-SUBDOMAIN.workers.dev",
 ]
+preview_feedback_reporter_limit_per_hour = 30
+preview_feedback_channel_limit_per_hour = 100
 
 # =============================================================================
 # API Keys
