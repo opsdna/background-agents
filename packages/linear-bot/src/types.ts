@@ -130,6 +130,7 @@ export interface IssueSession {
   /** Set for repository sessions; absent for environment sessions. */
   repoOwner?: string;
   repoName?: string;
+  baseBranch?: string;
   /** Set for environment sessions. */
   environmentId?: string;
   model: string;

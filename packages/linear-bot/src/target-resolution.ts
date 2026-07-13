@@ -20,12 +20,13 @@ import { getLinearConfig, type ResolvedLinearConfig } from "./utils/integration-
 import { resolveStaticTarget } from "./model-resolution";
 import { getProjectRepoMapping, getTeamRepoMapping } from "./kv-store";
 import { createLogger } from "./logger";
+import { buildInternalAuthHeaders } from "./utils/internal";
 
 const log = createLogger("target-resolution");
 
 /** A resolved session launch target: a repository or a saved environment. */
 export type SessionTarget =
-  | { kind: "repository"; owner: string; name: string; fullName: string }
+  | { kind: "repository"; owner: string; name: string; fullName: string; baseBranch?: string }
   | { kind: "environment"; environment: Environment };
 
 /** Display label: the repo fullName or the environment name. */
@@ -96,14 +97,82 @@ export async function resolveTargetIntegration(
  */
 export function targetRequestFields(
   target: SessionTarget
-): { repoOwner: string; repoName: string } | { environmentId: string } {
+): { repoOwner: string; repoName: string; branch?: string } | { environmentId: string } {
   return target.kind === "environment"
     ? { environmentId: target.environment.id }
-    : { repoOwner: target.owner, repoName: target.name };
+    : {
+        repoOwner: target.owner,
+        repoName: target.name,
+        ...(target.baseBranch ? { branch: target.baseBranch } : {}),
+      };
 }
 
-function repositoryTarget(owner: string, name: string, fullName?: string): SessionTarget {
-  return { kind: "repository", owner, name, fullName: fullName ?? `${owner}/${name}` };
+function repositoryTarget(
+  owner: string,
+  name: string,
+  fullName?: string,
+  baseBranch?: string
+): SessionTarget {
+  return {
+    kind: "repository",
+    owner,
+    name,
+    fullName: fullName ?? `${owner}/${name}`,
+    ...(baseBranch ? { baseBranch } : {}),
+  };
+}
+
+type PreviewChannelLookup =
+  | { kind: "not_found" }
+  | { kind: "failed" }
+  | { kind: "found"; repository: string; baseBranch: string };
+
+async function lookupPreviewChannel(
+  env: Env,
+  parentLinearIssueId: string,
+  traceId: string
+): Promise<PreviewChannelLookup> {
+  try {
+    const channelKey = await env.LINEAR_KV.get(`preview-feedback:parent:${parentLinearIssueId}`);
+    if (!channelKey) return { kind: "not_found" };
+    const response = await env.CONTROL_PLANE.fetch(
+      "https://internal/preview-feedback/channels/by-parent",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(await buildInternalAuthHeaders(env.INTERNAL_CALLBACK_SECRET, traceId)),
+        },
+        body: JSON.stringify({ parentLinearIssueId, channelKey }),
+      }
+    );
+    if (response.status === 404) return { kind: "not_found" };
+    if (!response.ok) return { kind: "failed" };
+    const value = (await response.json()) as {
+      channel?: { repository?: unknown; baseBranch?: unknown; status?: unknown };
+    };
+    if (
+      !value.channel ||
+      typeof value.channel.repository !== "string" ||
+      typeof value.channel.baseBranch !== "string" ||
+      value.channel.status === "closed" ||
+      value.channel.status === "expired"
+    ) {
+      return { kind: "failed" };
+    }
+    return {
+      kind: "found",
+      repository: value.channel.repository,
+      baseBranch: value.channel.baseBranch,
+    };
+  } catch (error) {
+    log.error("target.preview_channel_lookup_failed", {
+      trace_id: traceId,
+      linear_issue_id: parentLinearIssueId,
+      error: error instanceof Error ? error : new Error(String(error)),
+    });
+    return { kind: "failed" };
+  }
 }
 
 /**
@@ -155,6 +224,22 @@ export async function resolveSessionTarget(
   params: ResolveSessionTargetParams
 ): Promise<ResolvedSessionTarget | null> {
   const { env, client, agentSessionId, issue, labelNames, projectInfo, comment, traceId } = params;
+
+  const previewChannel = await lookupPreviewChannel(env, issue.id, traceId);
+  if (previewChannel.kind === "found") {
+    const { owner, name } = splitRepoFullName(previewChannel.repository);
+    return {
+      target: repositoryTarget(owner, name, previewChannel.repository, previewChannel.baseBranch),
+      reasoning: `Preview feedback channel for ${previewChannel.repository}@${previewChannel.baseBranch}`,
+    };
+  }
+  if (previewChannel.kind === "failed") {
+    await emitAgentActivity(client, agentSessionId, {
+      type: "error",
+      body: "Could not verify the preview branch, so no coding session was started.",
+    });
+    return null;
+  }
 
   // 1. Check project→target mapping FIRST
   if (projectInfo?.id) {

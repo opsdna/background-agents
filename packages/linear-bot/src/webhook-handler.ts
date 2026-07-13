@@ -492,7 +492,13 @@ async function handleNewSession(
     sessionId: session.sessionId,
     issueId: issue.id,
     issueIdentifier: issue.identifier,
-    ...targetRequestFields(target),
+    ...(target.kind === "environment"
+      ? { environmentId: target.environment.id }
+      : {
+          repoOwner: target.owner,
+          repoName: target.name,
+          ...(target.baseBranch ? { baseBranch: target.baseBranch } : {}),
+        }),
     model,
     agentSessionId,
     createdAt: Date.now(),

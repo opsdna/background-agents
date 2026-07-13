@@ -79,6 +79,15 @@ describe("preview feedback channel registry", () => {
       },
     });
 
+    const byParent = await post("/preview-feedback/channels/by-parent", {
+      parentLinearIssueId: "linear-parent-id",
+      channelKey: CHANNEL_KEY,
+    });
+    expect(byParent.status).toBe(200);
+    expect(await byParent.json()).toMatchObject({
+      channel: { baseBranch: claimBody("x").baseBranch },
+    });
+
     const nextClaim = await post("/preview-feedback/channels/claim", {
       ...claimBody("worker-b"),
       now: NOW + 2,

@@ -116,6 +116,14 @@ export class PreviewFeedbackChannelStore {
     return row ? toChannel(row) : null;
   }
 
+  async getByParentIssue(parentLinearIssueId: string): Promise<PreviewFeedbackChannel | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM preview_feedback_channels WHERE parent_linear_issue_id = ?")
+      .bind(parentLinearIssueId)
+      .first<PreviewFeedbackChannelRow>();
+    return row ? toChannel(row) : null;
+  }
+
   async claim(
     input: ClaimPreviewFeedbackChannelInput
   ): Promise<{ claimed: boolean; channel: PreviewFeedbackChannel }> {
