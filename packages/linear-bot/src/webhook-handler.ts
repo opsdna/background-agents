@@ -602,7 +602,7 @@ async function handleNewSession(
       actorDisplayName,
       actorEmail,
       teamId,
-      ...(baseBranch ? { baseBranch } : {}),
+      ...(baseBranch ? { branch: baseBranch } : {}),
     },
     traceId
   );

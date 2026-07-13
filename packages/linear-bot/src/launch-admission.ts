@@ -68,6 +68,7 @@ export async function createSession(
     actorUserId?: string;
     actorDisplayName?: string;
     actorEmail?: string;
+    branch?: string;
     teamId: string | null;
   },
   traceId?: string
@@ -75,6 +76,7 @@ export async function createSession(
   const url = "https://internal/sessions";
   const body = JSON.stringify({
     ...targetRequestFields(target),
+    ...(target.kind === "repository" && params.branch ? { branch: params.branch } : {}),
     title: params.title,
     harness: params.harness,
     model: params.model,
