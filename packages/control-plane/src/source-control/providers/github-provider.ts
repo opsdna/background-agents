@@ -36,6 +36,7 @@ import {
   getCachedInstallationToken,
   getCachedInstallationTokenWithExpiry,
   getInstallationRepository,
+  getRepositoryBranchHead,
   listInstallationRepositories,
   listRepositoryBranches,
   fetchWithTimeout,
@@ -747,7 +748,9 @@ export class GitHubSourceControlProvider implements SourceControlProvider {
     }
   }
 
-  async getBranchHead(config: GetRepositoryConfig & { branch: string }): Promise<string | null> {
+  async getBranchHead(
+    config: GetRepositoryConfig & { branch: string }
+  ): Promise<{ name: string; sha: string } | null> {
     if (!this.appConfig) {
       throw new SourceControlProviderError(
         "GitHub App not configured - cannot resolve branch head",
@@ -755,39 +758,14 @@ export class GitHubSourceControlProvider implements SourceControlProvider {
       );
     }
     try {
-      const token = await getCachedInstallationToken(this.appConfig, {
-        cacheStore: this.cacheStore,
-        userAgent: this.userAgent,
-      });
-      const response = await fetchWithTimeout(
-        `${GITHUB_API_BASE}/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(
-          config.name
-        )}/git/ref/heads/${encodeURIComponent(config.branch)}`,
-        {
-          headers: {
-            Accept: "application/vnd.github+json",
-            Authorization: `Bearer ${token}`,
-            "User-Agent": this.userAgent,
-          },
-        }
+      return await getRepositoryBranchHead(
+        this.appConfig,
+        config.owner,
+        config.name,
+        config.branch,
+        { cacheStore: this.cacheStore, userAgent: this.userAgent }
       );
-      if (response.status === 404) return null;
-      if (!response.ok) {
-        const error = await response.text();
-        throw SourceControlProviderError.fromFetchError(
-          `Failed to resolve branch head: ${response.status} ${error}`,
-          new Error(error),
-          response.status
-        );
-      }
-      const data = await parseProviderResponse(
-        response,
-        githubBranchRefSchema,
-        "Failed to resolve branch head"
-      );
-      return data.object.sha;
     } catch (error) {
-      if (error instanceof SourceControlProviderError) throw error;
       throw SourceControlProviderError.fromFetchError(
         `Failed to resolve branch head: ${error instanceof Error ? error.message : String(error)}`,
         error,

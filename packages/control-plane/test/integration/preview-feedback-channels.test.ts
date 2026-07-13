@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { generateInternalToken } from "../../src/auth/internal";
+import { PreviewFeedbackChannelStore } from "../../src/db/preview-feedback-channels";
 import { cleanD1Tables } from "./cleanup";
 
 const NOW = Date.parse("2026-07-13T16:00:00.000Z");
@@ -97,7 +98,11 @@ describe("preview feedback channel registry", () => {
     });
     expect(attach.status).toBe(200);
     expect(await attach.json()).toMatchObject({
-      channel: { status: "agent_active", openInspectSessionId: "open-inspect-session-id" },
+      channel: {
+        status: "agent_active",
+        openInspectSessionId: "open-inspect-session-id",
+        sessionSyncedSha: "a".repeat(40),
+      },
     });
 
     const nextClaim = await post("/preview-feedback/channels/claim", {
@@ -123,5 +128,22 @@ describe("preview feedback channel registry", () => {
       status: "tracking",
     });
     expect(staleUpdate.status).toBe(409);
+  });
+
+  it("records a verified base SHA without releasing the channel lease", async () => {
+    await post("/preview-feedback/channels/claim", claimBody("worker-a"));
+    const store = new PreviewFeedbackChannelStore(env.DB);
+
+    await expect(
+      store.setBaseSha({
+        channelKey: CHANNEL_KEY,
+        leaseOwner: "worker-a",
+        baseSha: "d".repeat(40),
+        now: NOW + 1,
+      })
+    ).resolves.toMatchObject({
+      baseSha: "d".repeat(40),
+      leaseOwner: "worker-a",
+    });
   });
 });

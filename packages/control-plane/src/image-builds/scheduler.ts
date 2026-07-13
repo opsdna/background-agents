@@ -211,10 +211,11 @@ export class ImageBuildScheduler {
                 name: repository.repoName,
                 branch: repository.baseBranch,
               });
-              heads.push(head);
-              if (head === null) {
+              const sha = head?.sha ?? null;
+              heads.push(sha);
+              if (sha === null) {
                 stats.branchMissing += 1;
-              } else if (decision.recordedShas.get(repositoryIdentityKey(repository)) === head) {
+              } else if (decision.recordedShas.get(repositoryIdentityKey(repository)) === sha) {
                 stats.branchMatched += 1;
               } else {
                 stats.branchDrifted += 1;
