@@ -4,7 +4,6 @@ import {
 } from "../db/preview-feedback-channels";
 import { admit, dispatch } from "../routing/admit";
 import type { ControlPlaneHonoEnv } from "../routing/hono-env";
-import type { Env } from "../types";
 import { Hono } from "hono";
 import { parseJsonBody } from "./body";
 import { error, json, serviceAuthorized, type RequestContext } from "./shared";
@@ -144,6 +143,22 @@ async function getChannel(request: Request, ctx: RequestContext): Promise<Respon
   return channel ? json({ channel }) : error("Preview feedback channel not found", 404);
 }
 
+async function getChannelByParent(request: Request, ctx: RequestContext): Promise<Response> {
+  const body = await boundedBody<{ parentLinearIssueId?: unknown; channelKey?: unknown }>(request);
+  if (body instanceof Response) return body;
+  const parentLinearIssueId = requiredString(body.parentLinearIssueId);
+  const channelKey = requiredString(body.channelKey, 1000);
+  if (!parentLinearIssueId || !channelKey) {
+    return error("parentLinearIssueId and channelKey are required", 400);
+  }
+  const channel = await new PreviewFeedbackChannelStore(ctx.db).getByParentIssue(
+    parentLinearIssueId
+  );
+  return channel?.channelKey === channelKey
+    ? json({ channel })
+    : error("Preview feedback channel not found", 404);
+}
+
 async function updateChannel(request: Request, ctx: RequestContext): Promise<Response> {
   const body = await boundedBody<UpdateBody>(request);
   if (body instanceof Response) return body;
@@ -206,4 +221,9 @@ previewFeedbackChannelRoutes.post(
   "/preview-feedback/channels/update",
   LINEAR_SERVICE,
   (c) => dispatch(c, (request, _env, _params, ctx) => updateChannel(request, ctx))
+);
+previewFeedbackChannelRoutes.post(
+  "/preview-feedback/channels/by-parent",
+  LINEAR_SERVICE,
+  (c) => dispatch(c, (request, _env, _params, ctx) => getChannelByParent(request, ctx))
 );

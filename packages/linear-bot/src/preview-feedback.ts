@@ -249,6 +249,7 @@ async function ensureParentIssue(
   }
   if (claim.channel.parentLinearIssueId && claim.channel.parentLinearIssueIdentifier) {
     await releaseChannelLease(env, channelKey, envelope.feedbackId, now, claim.channel);
+    await rememberParentIssue(env, claim.channel.parentLinearIssueId, channelKey, envelope);
     return channelParent(claim.channel);
   }
 
@@ -269,7 +270,19 @@ async function ensureParentIssue(
   if (updated.channel.parentLinearIssueId !== parent.id) {
     throw new Error("Preview feedback parent issue was not registered");
   }
+  await rememberParentIssue(env, parent.id, channelKey, envelope);
   return parent;
+}
+
+async function rememberParentIssue(
+  env: Env,
+  parentIssueId: string,
+  channelKey: string,
+  envelope: PreviewFeedbackEnvelope
+): Promise<void> {
+  await env.LINEAR_KV.put(`preview-feedback:parent:${parentIssueId}`, channelKey, {
+    expirationTtl: envelope.deployment.kind === "staging" ? 2 * 24 * 60 * 60 : 8 * 24 * 60 * 60,
+  });
 }
 
 async function waitForParentIssue(
