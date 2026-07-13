@@ -3,6 +3,7 @@ import {
   type PreviewFeedbackChannelStatus,
 } from "../db/preview-feedback-channels";
 import type { Env } from "../types";
+import { createSourceControlProviderFromEnv } from "../source-control/provider-from-env";
 import { error, json, parseJsonBody, parsePattern, type Route } from "./shared";
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -224,6 +225,50 @@ async function attachSession(request: Request, env: Env): Promise<Response> {
   return channel ? json({ channel }) : error("Preview feedback channel session mismatch", 409);
 }
 
+async function resolveBase(request: Request, env: Env): Promise<Response> {
+  const body = await boundedBody<{ channelKey?: unknown; leaseOwner?: unknown; now?: unknown }>(
+    request
+  );
+  if (body instanceof Response) return body;
+  const channelKey = requiredString(body.channelKey, 1000);
+  const leaseOwner = requiredString(body.leaseOwner);
+  if (!channelKey || !leaseOwner || !safeInteger(body.now)) {
+    return error("Invalid preview feedback base resolution", 400);
+  }
+  const store = new PreviewFeedbackChannelStore(env.DB);
+  const channel = await store.get(channelKey);
+  if (
+    !channel ||
+    channel.leaseOwner !== leaseOwner ||
+    channel.leaseExpiresAt === null ||
+    channel.leaseExpiresAt <= body.now ||
+    channel.status === "closed" ||
+    channel.status === "expired"
+  ) {
+    return error("Preview feedback channel lease lost", 409);
+  }
+  const separator = channel.repository.indexOf("/");
+  if (separator < 1 || separator === channel.repository.length - 1) {
+    return error("Preview feedback repository is invalid", 409);
+  }
+  const owner = channel.repository.slice(0, separator);
+  const name = channel.repository.slice(separator + 1);
+  const provider = createSourceControlProviderFromEnv(env);
+  const access = await provider.checkRepositoryAccess({ owner, name });
+  if (!access) return error("Preview feedback repository is unavailable", 409);
+  const head = await provider.getBranchHead({ owner, name, branch: channel.baseBranch });
+  if (!head || !validSha(head.sha)) {
+    return error("Preview feedback branch is unavailable", 409);
+  }
+  const updated = await store.setBaseSha({
+    channelKey,
+    leaseOwner,
+    baseSha: head.sha.toLowerCase(),
+    now: body.now,
+  });
+  return updated ? json({ channel: updated }) : error("Preview feedback channel lease lost", 409);
+}
+
 export const previewFeedbackChannelRoutes: Route[] = [
   {
     method: "POST",
@@ -249,5 +294,10 @@ export const previewFeedbackChannelRoutes: Route[] = [
     method: "POST",
     pattern: parsePattern("/preview-feedback/channels/attach-session"),
     handler: (request, env) => attachSession(request, env),
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/preview-feedback/channels/resolve-base"),
+    handler: (request, env) => resolveBase(request, env),
   },
 ];
