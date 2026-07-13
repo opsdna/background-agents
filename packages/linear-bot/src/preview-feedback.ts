@@ -2,9 +2,12 @@ import type { Context } from "hono";
 import { timingSafeEqual } from "@open-inspect/shared";
 
 import type { Env } from "./types";
+import { createLogger } from "./logger";
 import {
+  createIssueAttachment,
   createIssue,
   getLinearClientOrThrow,
+  uploadLinearImage,
   type CreatedLinearIssue,
 } from "./utils/linear-client";
 
@@ -12,6 +15,11 @@ const MAX_REQUEST_BYTES = 3 * 1024 * 1024;
 const SIGNATURE_WINDOW_SECONDS = 5 * 60;
 const IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 const NONCE_TTL_SECONDS = SIGNATURE_WINDOW_SECONDS;
+const DEFAULT_REPORTER_LIMIT_PER_HOUR = 30;
+const DEFAULT_CHANNEL_LIMIT_PER_HOUR = 100;
+const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+const MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024;
+const log = createLogger("preview-feedback");
 
 interface PreviewFeedbackEnvelope {
   schemaVersion: 1;
@@ -46,6 +54,13 @@ interface PreviewFeedbackEnvelope {
     }>;
     accessibleName?: string;
     textSnippet?: string;
+  };
+  screenshot?: {
+    mimeType: "image/png" | "image/webp";
+    base64: string;
+    width: number;
+    height: number;
+    sha256?: string;
   };
 }
 
@@ -111,6 +126,11 @@ export async function handlePreviewFeedbackIngest(
     return reason(c, 403, "portal_origin_not_allowed");
   }
 
+  const rateLimit = await checkRateLimits(c.env, envelope, nowSeconds);
+  if (!rateLimit.allowed) {
+    return reason(c, 429, rateLimit.reason, { "retry-after": String(rateLimit.retryAfter) });
+  }
+
   let issue: CreatedLinearIssue;
   try {
     issue = await (services.createLinearIssue ?? createPreviewFeedbackIssue)(c.env, envelope);
@@ -139,12 +159,52 @@ async function createPreviewFeedbackIssue(
   const organizationId = required(env.PREVIEW_FEEDBACK_ORGANIZATION_ID);
   const teamId = required(env.PREVIEW_FEEDBACK_TEAM_ID);
   const client = await getLinearClientOrThrow(env, organizationId);
-  return createIssue(client, {
+  let screenshotUrl: string | undefined;
+  if (envelope.screenshot) {
+    try {
+      screenshotUrl = await uploadLinearImage(client, {
+        mimeType: envelope.screenshot.mimeType,
+        bytes: decodeBase64(envelope.screenshot.base64),
+        filename: `preview-feedback-${envelope.feedbackId}.${envelope.screenshot.mimeType === "image/png" ? "png" : "webp"}`,
+      });
+    } catch (error) {
+      log.warn("preview_feedback.screenshot_upload_failed", {
+        feedback_id: envelope.feedbackId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const issue = await createIssue(client, {
     teamId,
     title: issueTitle(envelope),
-    description: issueDescription(envelope),
+    description: issueDescription(envelope, screenshotUrl),
     ...(env.PREVIEW_FEEDBACK_PROJECT_ID ? { projectId: env.PREVIEW_FEEDBACK_PROJECT_ID } : {}),
   });
+  try {
+    await createIssueAttachment(client, {
+      issueId: issue.id,
+      title: "Open OpsDNA preview",
+      subtitle: `${envelope.deployment.kind === "staging" ? "Staging" : `PR #${envelope.deployment.prNumber ?? "unknown"}`} at ${envelope.deployment.commitSha.slice(0, 7)}`,
+      url: envelope.page.url,
+      metadata: {
+        feedbackId: envelope.feedbackId,
+        repository: envelope.deployment.repository,
+        branch: envelope.deployment.branch,
+        commit: envelope.deployment.commitSha,
+        ...(envelope.deployment.prNumber === null
+          ? {}
+          : { prNumber: envelope.deployment.prNumber }),
+      },
+    });
+  } catch (error) {
+    log.warn("preview_feedback.attachment_create_failed", {
+      feedback_id: envelope.feedbackId,
+      linear_issue_id: issue.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return issue;
 }
 
 export function issueTitle(envelope: PreviewFeedbackEnvelope): string {
@@ -154,7 +214,10 @@ export function issueTitle(envelope: PreviewFeedbackEnvelope): string {
   return `[UI feedback] ${subject}: ${firstSentence}`.slice(0, 240);
 }
 
-export function issueDescription(envelope: PreviewFeedbackEnvelope): string {
+export function issueDescription(
+  envelope: PreviewFeedbackEnvelope,
+  screenshotUrl?: string
+): string {
   const source = envelope.selection.source;
   const sourceText = source
     ? `${source.file}${source.line ? `:${source.line}${source.column ? `:${source.column}` : ""}` : ""}`
@@ -167,7 +230,7 @@ export function issueDescription(envelope: PreviewFeedbackEnvelope): string {
   return [
     "## Feedback",
     "",
-    envelope.comment,
+    escapeMarkdown(envelope.comment),
     "",
     "## Selected element",
     "",
@@ -176,17 +239,18 @@ export function issueDescription(envelope: PreviewFeedbackEnvelope): string {
     `- CSS classes: ${classes}`,
     `- Source: \`${escapeInline(sourceText)}\``,
     `- Route: \`${escapeInline(envelope.page.path)}\``,
-    `- Accessible name: ${envelope.selection.accessibleName ?? "Unavailable"}`,
+    `- Accessible name: ${escapeMarkdown(envelope.selection.accessibleName ?? "Unavailable")}`,
     ...(ancestors ? ["", "### DOM ancestors (nearest first)", "", ancestors] : []),
     "",
     "## Preview",
     "",
-    `- URL: ${envelope.page.url}`,
+    `- URL: ${escapeMarkdown(envelope.page.url)}`,
     `- Repository: \`${escapeInline(envelope.deployment.repository)}\``,
     `- PR: ${pr}`,
     `- Branch: \`${escapeInline(envelope.deployment.branch)}\``,
     `- Commit: \`${escapeInline(envelope.deployment.commitSha)}\``,
-    `- Reporter: ${envelope.reporter.displayName}`,
+    `- Reporter: ${escapeMarkdown(envelope.reporter.displayName)}`,
+    ...(screenshotUrl ? ["", "## Screenshot", "", `![Selected element](${screenshotUrl})`] : []),
     "",
     `<!-- opsdna-preview-feedback:v1 feedbackId=${escapeInline(envelope.feedbackId)} -->`,
   ].join("\n");
@@ -216,16 +280,165 @@ function parseEnvelope(value: unknown): PreviewFeedbackEnvelope | null {
     return null;
   if (!isString(value.deployment.repository, 1, 200) || !isString(value.deployment.branch, 1, 500))
     return null;
-  if (
-    !isString(value.deployment.commitSha, 1, 100) ||
-    !isString(value.deployment.portalUrl, 1, 2000)
-  )
+  if (!isCommitSha(value.deployment.commitSha) || !isString(value.deployment.portalUrl, 1, 2000))
     return null;
   if (!(value.deployment.prNumber === null || Number.isSafeInteger(value.deployment.prNumber)))
     return null;
   if (!isString(value.page.url, 1, 2000) || !isString(value.page.path, 1, 2000)) return null;
   if (!isString(value.selection.tagName, 1, 100)) return null;
-  return value as unknown as PreviewFeedbackEnvelope;
+  const source = parseSource(value.selection.source);
+  if (value.selection.source !== undefined && source === null) return null;
+  const classNames = parseStringArray(value.selection.classNames, 50, 200);
+  if (value.selection.classNames !== undefined && classNames === null) return null;
+  const ancestors = parseAncestors(value.selection.ancestors);
+  if (value.selection.ancestors !== undefined && ancestors === null) return null;
+  const optionalSelection = {
+    componentName: optionalString(value.selection.componentName, 300),
+    id: optionalString(value.selection.id, 300),
+    testId: optionalString(value.selection.testId, 300),
+    role: optionalString(value.selection.role, 100),
+    accessibleName: optionalString(value.selection.accessibleName, 1000),
+    textSnippet: optionalString(value.selection.textSnippet, 300),
+  };
+  if (Object.values(optionalSelection).some((part) => part === null)) return null;
+  const screenshot = parseScreenshot(value.screenshot);
+  if (value.screenshot !== undefined && screenshot === null) return null;
+
+  return {
+    schemaVersion: 1,
+    action: value.action,
+    comment: value.comment,
+    feedbackId: value.feedbackId,
+    idempotencyKey: value.idempotencyKey,
+    reporter: {
+      identityId: value.reporter.identityId,
+      displayName: value.reporter.displayName,
+    },
+    deployment: {
+      kind: value.deployment.kind,
+      repository: value.deployment.repository,
+      prNumber: value.deployment.prNumber as number | null,
+      branch: value.deployment.branch,
+      commitSha: value.deployment.commitSha,
+      portalUrl: value.deployment.portalUrl,
+    },
+    page: { url: value.page.url, path: value.page.path },
+    selection: {
+      tagName: value.selection.tagName,
+      ...(source ? { source } : {}),
+      ...(classNames ? { classNames } : {}),
+      ...(ancestors ? { ancestors } : {}),
+      ...definedEntries(optionalSelection),
+    },
+    ...(screenshot ? { screenshot } : {}),
+  };
+}
+
+async function checkRateLimits(
+  env: Env,
+  envelope: PreviewFeedbackEnvelope,
+  nowSeconds: number
+): Promise<
+  | { allowed: true }
+  | { allowed: false; reason: "reporter_rate_limited" | "channel_rate_limited"; retryAfter: number }
+> {
+  const bucket = Math.floor(nowSeconds / RATE_LIMIT_WINDOW_SECONDS);
+  const retryAfter = RATE_LIMIT_WINDOW_SECONDS - (nowSeconds % RATE_LIMIT_WINDOW_SECONDS);
+  const reporterHash = (await sha256Hex(envelope.reporter.identityId)).slice(0, 32);
+  const channel = `${envelope.deployment.repository}:${envelope.deployment.kind}:${envelope.deployment.prNumber ?? envelope.deployment.branch}`;
+  const channelHash = (await sha256Hex(channel)).slice(0, 32);
+  const counters = [
+    {
+      key: `preview-feedback:rate:reporter:${reporterHash}:${bucket}`,
+      limit: configuredLimit(
+        env.PREVIEW_FEEDBACK_REPORTER_LIMIT_PER_HOUR,
+        DEFAULT_REPORTER_LIMIT_PER_HOUR
+      ),
+      reason: "reporter_rate_limited" as const,
+    },
+    {
+      key: `preview-feedback:rate:channel:${channelHash}:${bucket}`,
+      limit: configuredLimit(
+        env.PREVIEW_FEEDBACK_CHANNEL_LIMIT_PER_HOUR,
+        DEFAULT_CHANNEL_LIMIT_PER_HOUR
+      ),
+      reason: "channel_rate_limited" as const,
+    },
+  ];
+  const current = await Promise.all(
+    counters.map(async ({ key }) => Number(await env.LINEAR_KV.get(key)) || 0)
+  );
+  const blocked = counters.find((counter, index) => current[index]! >= counter.limit);
+  if (blocked) return { allowed: false, reason: blocked.reason, retryAfter };
+  await Promise.all(
+    counters.map(({ key }, index) =>
+      env.LINEAR_KV.put(key, String(current[index]! + 1), {
+        expirationTtl: retryAfter + 60,
+      })
+    )
+  );
+  return { allowed: true };
+}
+
+function parseSource(value: unknown): PreviewFeedbackEnvelope["selection"]["source"] | null {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || !isString(value.file, 1, 1000) || value.file.includes("..")) return null;
+  if (!optionalPositiveInteger(value.line) || !optionalPositiveInteger(value.column)) return null;
+  return {
+    file: value.file,
+    ...(typeof value.line === "number" ? { line: value.line } : {}),
+    ...(typeof value.column === "number" ? { column: value.column } : {}),
+  };
+}
+
+function parseAncestors(value: unknown): PreviewFeedbackEnvelope["selection"]["ancestors"] | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 5) return null;
+  const result: Array<NonNullable<PreviewFeedbackEnvelope["selection"]["ancestors"]>[number]> = [];
+  for (const node of value) {
+    if (!isRecord(node) || !isString(node.tagName, 1, 100)) return null;
+    const classNames = parseStringArray(node.classNames, 50, 200);
+    const optional = {
+      id: optionalString(node.id, 300),
+      testId: optionalString(node.testId, 300),
+      role: optionalString(node.role, 100),
+    };
+    if (
+      (node.classNames !== undefined && classNames === null) ||
+      Object.values(optional).some((part) => part === null)
+    )
+      return null;
+    result.push({
+      tagName: node.tagName,
+      ...(classNames ? { classNames } : {}),
+      ...definedEntries(optional),
+    });
+  }
+  return result;
+}
+
+function parseScreenshot(value: unknown): PreviewFeedbackEnvelope["screenshot"] | null {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || (value.mimeType !== "image/png" && value.mimeType !== "image/webp"))
+    return null;
+  if (!isString(value.base64, 1, Math.ceil((MAX_SCREENSHOT_BYTES * 4) / 3) + 4)) return null;
+  if (!Number.isSafeInteger(value.width) || !Number.isSafeInteger(value.height)) return null;
+  if ((value.width as number) <= 0 || (value.height as number) <= 0) return null;
+  let bytes: Uint8Array;
+  try {
+    bytes = decodeBase64(value.base64);
+  } catch {
+    return null;
+  }
+  if (bytes.byteLength > MAX_SCREENSHOT_BYTES) return null;
+  if (value.sha256 !== undefined && !/^[0-9a-f]{64}$/iu.test(String(value.sha256))) return null;
+  return {
+    mimeType: value.mimeType,
+    base64: value.base64,
+    width: value.width as number,
+    height: value.height as number,
+    ...(typeof value.sha256 === "string" ? { sha256: value.sha256 } : {}),
+  };
 }
 
 function isAllowed(value: string, csv: string | undefined): boolean {
@@ -267,6 +480,37 @@ function isString(value: unknown, min: number, max: number): value is string {
   return typeof value === "string" && value.length >= min && value.length <= max;
 }
 
+function optionalString(value: unknown, max: number): string | undefined | null {
+  if (value === undefined) return undefined;
+  return isString(value, 1, max) ? value : null;
+}
+
+function parseStringArray(
+  value: unknown,
+  maxItems: number,
+  maxLength: number
+): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > maxItems) return null;
+  return value.every((part) => isString(part, 1, maxLength)) ? value : null;
+}
+
+function optionalPositiveInteger(value: unknown): boolean {
+  return value === undefined || (Number.isSafeInteger(value) && (value as number) > 0);
+}
+
+function isCommitSha(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{40}$/iu.test(value);
+}
+
+function definedEntries<T extends Record<string, string | undefined | null>>(
+  value: T
+): { [K in keyof T]?: string } {
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  ) as { [K in keyof T]?: string };
+}
+
 function isUuidString(value: unknown): value is string {
   return typeof value === "string" && isUuid(value);
 }
@@ -284,8 +528,21 @@ function escapeInline(value: string): string {
   return value.replaceAll("`", "\\`").replaceAll("\n", " ");
 }
 
-function reason(c: Context, status: number, value: string): Response {
-  return c.json({ error: "Preview feedback request failed", reason: value }, status as 400);
+function escapeMarkdown(value: string): string {
+  return value.replace(/([\\`*_[\]<>])/gu, "\\$1");
+}
+
+function reason(
+  c: Context,
+  status: number,
+  value: string,
+  headers?: Record<string, string>
+): Response {
+  return c.json(
+    { error: "Preview feedback request failed", reason: value },
+    status as 400,
+    headers
+  );
 }
 
 function jsonInit(status: number): ResponseInit {
@@ -308,4 +565,16 @@ async function hmacHex(secret: string, value: string): Promise<string> {
   );
   const bytes = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function configuredLimit(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const decoded = atob(value);
+  const bytes = new Uint8Array(decoded.length);
+  for (let index = 0; index < decoded.length; index += 1) bytes[index] = decoded.charCodeAt(index);
+  return bytes;
 }

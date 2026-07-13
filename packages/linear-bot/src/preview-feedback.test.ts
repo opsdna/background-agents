@@ -76,17 +76,20 @@ function env(kv: KVNamespace): Env {
 
 async function signedRequest(
   body: string,
-  overrides: Record<string, string> = {}
+  overrides: Record<string, string> = {},
+  requestIds: { nonce?: string; idempotencyKey?: string } = {}
 ): Promise<Request> {
+  const requestNonce = requestIds.nonce ?? NONCE;
+  const requestIdempotencyKey = requestIds.idempotencyKey ?? IDEMPOTENCY;
   const bodyHash = await sha256(body);
-  const signature = await hmac(`v1\n${TIMESTAMP}\n${NONCE}\n${bodyHash}`);
+  const signature = await hmac(`v1\n${TIMESTAMP}\n${requestNonce}\n${bodyHash}`);
   return new Request("https://linear-bot.example/preview-feedback/ingest", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "idempotency-key": IDEMPOTENCY,
+      "idempotency-key": requestIdempotencyKey,
       "x-opsdna-feedback-timestamp": TIMESTAMP,
-      "x-opsdna-feedback-nonce": NONCE,
+      "x-opsdna-feedback-nonce": requestNonce,
       "x-opsdna-feedback-signature": `v1=${signature}`,
       ...overrides,
     },
@@ -112,10 +115,13 @@ describe("POST /preview-feedback/ingest", () => {
       agent: { status: "not_requested" },
     });
     expect(createLinearIssue).toHaveBeenCalledOnce();
-    expect(putCalls.map((call) => call.key)).toEqual([
-      `preview-feedback:nonce:${NONCE}`,
-      `preview-feedback:idempotency:${IDEMPOTENCY}`,
-    ]);
+    expect(putCalls.map((call) => call.key)).toEqual(
+      expect.arrayContaining([
+        `preview-feedback:nonce:${NONCE}`,
+        `preview-feedback:idempotency:${IDEMPOTENCY}`,
+      ])
+    );
+    expect(putCalls.filter((call) => call.key.includes(":rate:"))).toHaveLength(2);
   });
 
   it("returns the stored response without creating a duplicate issue", async () => {
@@ -150,6 +156,51 @@ describe("POST /preview-feedback/ingest", () => {
     const disallowed = await instance.fetch(await signedRequest(modified), env(kv));
     expect(disallowed.status).toBe(403);
     expect(await disallowed.json()).toMatchObject({ reason: "repository_not_allowed" });
+    expect(createLinearIssue).not.toHaveBeenCalled();
+  });
+
+  it("rate limits a reporter before creating another issue", async () => {
+    const { kv } = createFakeKV();
+    const { instance, createLinearIssue } = app();
+    const configured = env(kv);
+    configured.PREVIEW_FEEDBACK_REPORTER_LIMIT_PER_HOUR = "1";
+    await instance.fetch(await signedRequest(JSON.stringify(payload())), configured);
+
+    const nextIdempotencyKey = "9f2998e3-705b-4e1c-bfad-6200b910d2bd";
+    const nextNonce = "8c95a7cd-3881-4e93-a3ef-1865bea533ed";
+    const nextPayload = {
+      ...payload(),
+      feedbackId: "56fb4fba-8176-4dea-9949-da74d719b59e",
+      idempotencyKey: nextIdempotencyKey,
+    };
+    const response = await instance.fetch(
+      await signedRequest(
+        JSON.stringify(nextPayload),
+        {},
+        {
+          nonce: nextNonce,
+          idempotencyKey: nextIdempotencyKey,
+        }
+      ),
+      configured
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("3600");
+    expect(await response.json()).toMatchObject({ reason: "reporter_rate_limited" });
+    expect(createLinearIssue).toHaveBeenCalledOnce();
+  });
+
+  it("rejects malformed nested DOM and screenshot data", async () => {
+    const { kv } = createFakeKV();
+    const { instance, createLinearIssue } = app();
+    const malformed = {
+      ...payload(),
+      selection: { ...payload().selection, classNames: ["valid", 42] },
+      screenshot: { mimeType: "image/svg+xml", base64: "PHN2Zz4=", width: 10, height: 10 },
+    };
+    const response = await instance.fetch(await signedRequest(JSON.stringify(malformed)), env(kv));
+    expect(response.status).toBe(400);
     expect(createLinearIssue).not.toHaveBeenCalled();
   });
 });
