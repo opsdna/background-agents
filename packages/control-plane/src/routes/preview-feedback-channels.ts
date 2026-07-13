@@ -337,6 +337,24 @@ async function closeChannel(request: Request, env: Env, ctx: RequestContext): Pr
   return json({ closed: true, channel, sessionCleanup });
 }
 
+async function resetSession(request: Request, env: Env): Promise<Response> {
+  const body = await boundedBody<{ channelKey?: unknown; leaseOwner?: unknown; now?: unknown }>(
+    request
+  );
+  if (body instanceof Response) return body;
+  const channelKey = requiredString(body.channelKey, 1000);
+  const leaseOwner = requiredString(body.leaseOwner);
+  if (!channelKey || !leaseOwner || !safeInteger(body.now)) {
+    return error("Invalid preview feedback session reset", 400);
+  }
+  const channel = await new PreviewFeedbackChannelStore(env.DB).resetSession({
+    channelKey,
+    leaseOwner,
+    now: body.now,
+  });
+  return channel ? json({ channel }) : error("Preview feedback channel lease lost", 409);
+}
+
 export const previewFeedbackChannelRoutes: Route[] = [
   {
     method: "POST",
@@ -372,5 +390,10 @@ export const previewFeedbackChannelRoutes: Route[] = [
     method: "POST",
     pattern: parsePattern("/preview-feedback/channels/close"),
     handler: (request, env, _match, ctx) => closeChannel(request, env, ctx),
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/preview-feedback/channels/reset-session"),
+    handler: (request, env) => resetSession(request, env),
   },
 ];

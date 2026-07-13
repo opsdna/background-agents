@@ -188,4 +188,38 @@ describe("preview feedback channel registry", () => {
       sessionCleanup: "not_attached",
     });
   });
+
+  it("clears a stale session attachment while preserving the activation lease", async () => {
+    await post("/preview-feedback/channels/claim", claimBody("worker-a"));
+    await new PreviewFeedbackChannelStore(env.DB).update({
+      channelKey: CHANNEL_KEY,
+      leaseOwner: "worker-a",
+      now: NOW + 1,
+      status: "agent_active",
+      baseSha: "a".repeat(40),
+      sessionSyncedSha: "a".repeat(40),
+      openInspectSessionId: "stale-session",
+      linearAgentSessionId: "stale-linear-session",
+    });
+    await post("/preview-feedback/channels/claim", {
+      ...claimBody("worker-b"),
+      now: NOW + 2,
+    });
+
+    const response = await post("/preview-feedback/channels/reset-session", {
+      channelKey: CHANNEL_KEY,
+      leaseOwner: "worker-b",
+      now: NOW + 3,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      channel: {
+        status: "provisioning",
+        openInspectSessionId: null,
+        linearAgentSessionId: null,
+        sessionSyncedSha: null,
+        leaseOwner: "worker-b",
+      },
+    });
+  });
 });
