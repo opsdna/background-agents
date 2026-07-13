@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { timingSafeEqual } from "@open-inspect/shared";
+import { buildInternalAuthHeaders, timingSafeEqual } from "@open-inspect/shared";
 
 import type { Env } from "./types";
 import { createLogger } from "./logger";
@@ -152,13 +152,14 @@ export async function handlePreviewFeedbackIngest(
   return new Response(serialized, jsonInit(201));
 }
 
-async function createPreviewFeedbackIssue(
+export async function createPreviewFeedbackIssue(
   env: Env,
   envelope: PreviewFeedbackEnvelope
 ): Promise<CreatedLinearIssue> {
   const organizationId = required(env.PREVIEW_FEEDBACK_ORGANIZATION_ID);
   const teamId = required(env.PREVIEW_FEEDBACK_TEAM_ID);
   const client = await getLinearClientOrThrow(env, organizationId);
+  const parent = await ensureParentIssue(env, envelope, client, teamId);
   let screenshotUrl: string | undefined;
   if (envelope.screenshot) {
     try {
@@ -180,6 +181,7 @@ async function createPreviewFeedbackIssue(
     title: issueTitle(envelope),
     description: issueDescription(envelope, screenshotUrl),
     ...(env.PREVIEW_FEEDBACK_PROJECT_ID ? { projectId: env.PREVIEW_FEEDBACK_PROJECT_ID } : {}),
+    parentId: parent.id,
   });
   try {
     await createIssueAttachment(client, {
@@ -205,6 +207,158 @@ async function createPreviewFeedbackIssue(
     });
   }
   return issue;
+}
+
+interface PreviewFeedbackChannelResponse {
+  claimed?: boolean;
+  channel: {
+    parentLinearIssueId: string | null;
+    parentLinearIssueIdentifier: string | null;
+  };
+}
+
+async function ensureParentIssue(
+  env: Env,
+  envelope: PreviewFeedbackEnvelope,
+  client: Awaited<ReturnType<typeof getLinearClientOrThrow>>,
+  teamId: string
+): Promise<CreatedLinearIssue> {
+  const organizationId = required(env.PREVIEW_FEEDBACK_ORGANIZATION_ID);
+  const previewId =
+    envelope.deployment.kind === "staging" ? "staging" : `pr-${envelope.deployment.prNumber}`;
+  const channelKey = `${organizationId}:${envelope.deployment.repository}:${envelope.deployment.kind}:${previewId}`;
+  const now = Date.now();
+  const claim = await controlPlaneChannelRequest(env, "/preview-feedback/channels/claim", {
+    channelKey,
+    linearOrganizationId: organizationId,
+    repository: envelope.deployment.repository,
+    deploymentKind: envelope.deployment.kind,
+    previewId,
+    prNumber: envelope.deployment.prNumber,
+    baseBranch: envelope.deployment.branch,
+    portalUrl: new URL(envelope.deployment.portalUrl).origin,
+    leaseOwner: envelope.feedbackId,
+    now,
+    leaseDurationMs: 60_000,
+    expiresAt: now + (envelope.deployment.kind === "staging" ? 24 : 7 * 24) * 60 * 60 * 1000,
+  });
+  if (!claim.claimed) {
+    const existing = await waitForParentIssue(env, channelKey, claim.channel);
+    if (existing) return existing;
+    throw new Error("Preview feedback channel is still provisioning");
+  }
+  if (claim.channel.parentLinearIssueId && claim.channel.parentLinearIssueIdentifier) {
+    await releaseChannelLease(env, channelKey, envelope.feedbackId, now, claim.channel);
+    return channelParent(claim.channel);
+  }
+
+  const parent = await createIssue(client, {
+    teamId,
+    title: parentIssueTitle(envelope),
+    description: parentIssueDescription(envelope, channelKey),
+    ...(env.PREVIEW_FEEDBACK_PROJECT_ID ? { projectId: env.PREVIEW_FEEDBACK_PROJECT_ID } : {}),
+  });
+  const updated = await controlPlaneChannelRequest(env, "/preview-feedback/channels/update", {
+    channelKey,
+    leaseOwner: envelope.feedbackId,
+    now: Date.now(),
+    status: "tracking",
+    parentLinearIssueId: parent.id,
+    parentLinearIssueIdentifier: parent.identifier,
+  });
+  if (updated.channel.parentLinearIssueId !== parent.id) {
+    throw new Error("Preview feedback parent issue was not registered");
+  }
+  return parent;
+}
+
+async function waitForParentIssue(
+  env: Env,
+  channelKey: string,
+  initial: PreviewFeedbackChannelResponse["channel"]
+): Promise<CreatedLinearIssue | null> {
+  if (initial.parentLinearIssueId && initial.parentLinearIssueIdentifier) {
+    return channelParent(initial);
+  }
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const current = await controlPlaneChannelRequest(env, "/preview-feedback/channels/get", {
+      channelKey,
+    });
+    if (current.channel.parentLinearIssueId && current.channel.parentLinearIssueIdentifier) {
+      return channelParent(current.channel);
+    }
+  }
+  return null;
+}
+
+async function releaseChannelLease(
+  env: Env,
+  channelKey: string,
+  leaseOwner: string,
+  now: number,
+  channel: PreviewFeedbackChannelResponse["channel"]
+): Promise<void> {
+  await controlPlaneChannelRequest(env, "/preview-feedback/channels/update", {
+    channelKey,
+    leaseOwner,
+    now,
+    status: "tracking",
+    ...(channel.parentLinearIssueId ? { parentLinearIssueId: channel.parentLinearIssueId } : {}),
+    ...(channel.parentLinearIssueIdentifier
+      ? { parentLinearIssueIdentifier: channel.parentLinearIssueIdentifier }
+      : {}),
+  });
+}
+
+function channelParent(channel: PreviewFeedbackChannelResponse["channel"]): CreatedLinearIssue {
+  return {
+    id: channel.parentLinearIssueId!,
+    identifier: channel.parentLinearIssueIdentifier!,
+    url: "",
+  };
+}
+
+async function controlPlaneChannelRequest(
+  env: Env,
+  path: string,
+  body: Record<string, unknown>
+): Promise<PreviewFeedbackChannelResponse> {
+  const response = await env.CONTROL_PLANE.fetch(`https://internal${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(await buildInternalAuthHeaders(env.INTERNAL_CALLBACK_SECRET)),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok && response.status !== 409) {
+    throw new Error(`Preview feedback channel request failed: ${response.status}`);
+  }
+  const value = (await response.json()) as PreviewFeedbackChannelResponse;
+  if (!value.channel) throw new Error("Preview feedback channel response was invalid");
+  return value;
+}
+
+function parentIssueTitle(envelope: PreviewFeedbackEnvelope): string {
+  return envelope.deployment.kind === "staging"
+    ? "[Staging] UI feedback channel"
+    : `[Preview PR #${envelope.deployment.prNumber}] UI feedback channel`;
+}
+
+function parentIssueDescription(envelope: PreviewFeedbackEnvelope, channelKey: string): string {
+  const pr = envelope.deployment.prNumber === null ? "N/A" : `#${envelope.deployment.prNumber}`;
+  return [
+    "UI feedback captured from one OpsDNA preview branch. Child issues contain individual feedback items.",
+    "",
+    `- Repository: \`${escapeInline(envelope.deployment.repository)}\``,
+    `- Preview: ${escapeMarkdown(envelope.deployment.portalUrl)}`,
+    `- PR: ${pr}`,
+    `- Base branch: \`${escapeInline(envelope.deployment.branch)}\``,
+    `- Initial observed commit: \`${escapeInline(envelope.deployment.commitSha)}\``,
+    "",
+    `<!-- opsdna-preview-feedback-channel:v1 key=${escapeInline(channelKey)} -->`,
+  ].join("\n");
 }
 
 export function issueTitle(envelope: PreviewFeedbackEnvelope): string {
@@ -283,6 +437,12 @@ function parseEnvelope(value: unknown): PreviewFeedbackEnvelope | null {
   if (!isCommitSha(value.deployment.commitSha) || !isString(value.deployment.portalUrl, 1, 2000))
     return null;
   if (!(value.deployment.prNumber === null || Number.isSafeInteger(value.deployment.prNumber)))
+    return null;
+  if (
+    (value.deployment.kind === "feature_preview" &&
+      (typeof value.deployment.prNumber !== "number" || value.deployment.prNumber <= 0)) ||
+    (value.deployment.kind === "staging" && value.deployment.prNumber !== null)
+  )
     return null;
   if (!isString(value.page.url, 1, 2000) || !isString(value.page.path, 1, 2000)) return null;
   if (!isString(value.selection.tagName, 1, 100)) return null;
