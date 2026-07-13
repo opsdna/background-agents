@@ -310,6 +310,18 @@ variable "preview_feedback_allowed_portal_origins" {
   default     = []
 }
 
+variable "preview_feedback_reporter_limit_per_hour" {
+  description = "Maximum preview feedback submissions accepted from one reporter per hour"
+  type        = number
+  default     = 30
+}
+
+variable "preview_feedback_channel_limit_per_hour" {
+  description = "Maximum preview feedback submissions accepted for one preview channel per hour"
+  type        = number
+  default     = 100
+}
+
 variable "linear_api_key" {
   description = "Linear API key for fallback comment posting"
   type        = string
