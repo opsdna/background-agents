@@ -9,7 +9,13 @@
  * never stop working; environments join them.
  */
 
-import type { Env, Environment, AgentSessionWebhookIssue, StaticTargetConfig } from "./types";
+import type {
+  Env,
+  Environment,
+  AgentSessionWebhookIssue,
+  IssueSession,
+  StaticTargetConfig,
+} from "./types";
 import type { LinearApiClient } from "./utils/linear-client";
 import { emitAgentActivity, getRepoSuggestions } from "./utils/linear-client";
 import { splitRepoFullName } from "./utils/repo";
@@ -23,7 +29,7 @@ import { createLogger } from "./logger";
 
 const log = createLogger("target-resolution");
 
-/** A resolved session launch target: a repository or a saved environment. */
+/** A resolved session target: a repository or a saved environment. */
 export type SessionTarget =
   | { kind: "repository"; owner: string; name: string; fullName: string }
   | { kind: "environment"; environment: Environment };
@@ -104,6 +110,26 @@ export function targetRequestFields(
 
 function repositoryTarget(owner: string, name: string, fullName?: string): SessionTarget {
   return { kind: "repository", owner, name, fullName: fullName ?? `${owner}/${name}` };
+}
+
+/** Rehydrate the stable target identity stored for an existing issue session. */
+export async function resolveStoredSessionTarget(
+  env: Env,
+  session: IssueSession,
+  traceId: string
+): Promise<SessionTarget | null> {
+  if (session.repoOwner && session.repoName) {
+    return repositoryTarget(session.repoOwner, session.repoName);
+  }
+  if (session.environmentId) {
+    const environment = await getEnvironmentById(env, session.environmentId, traceId);
+    if (environment) return { kind: "environment", environment };
+    log.warn("target.stored_environment_not_found", {
+      trace_id: traceId,
+      environment_id: session.environmentId,
+    });
+  }
+  return null;
 }
 
 /**

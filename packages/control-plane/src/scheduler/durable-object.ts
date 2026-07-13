@@ -1262,7 +1262,8 @@ export class SchedulerDO extends DurableObject<Env> {
     const target = await resolveAutomationSessionTarget(this.env, run, ctx, this.log);
 
     // Session-scoped integration settings resolve from the primary member
-    // (design §6.2) — same rule as handleCreateSession.
+    // (design §6.2), with environment-bound runs layering that environment's
+    // overrides on top (design §13.5) — same rules as handleCreateSession.
     const scopeMembers =
       target.repositories ??
       (target.repoOwner && target.repoName
@@ -1270,7 +1271,8 @@ export class SchedulerDO extends DurableObject<Env> {
         : []);
     const { codeServerEnabled, sandboxSettings } = await resolveSessionScopedSettings(
       this.env.DB,
-      scopeMembers
+      scopeMembers,
+      target.environmentId
     );
 
     await initializeSession(

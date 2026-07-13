@@ -1,4 +1,8 @@
-import { generateBranchName, type SessionArtifact } from "@open-inspect/shared";
+import { generateBranchName, toDisplayStatus, type SessionArtifact } from "@open-inspect/shared";
+import type {
+  SessionPullRequestRecord,
+  SessionPullRequestStore,
+} from "../db/session-pull-request-store";
 import type { Logger } from "../logger";
 import { resolveHeadBranchForPr, sanitizeBranchName } from "../source-control/branch-resolution";
 import {
@@ -9,6 +13,11 @@ import {
   type GitPushSpec,
 } from "../source-control";
 import { findPrArtifactForRepo } from "./pr-artifacts";
+import {
+  mergeSnapshotMetadata,
+  snapshotToRecord,
+  type PullRequestSnapshotInput,
+} from "./pull-request-snapshot";
 import {
   mapRepositoryTargetError,
   resolveSessionRepositoryTarget,
@@ -112,7 +121,7 @@ export interface PullRequestServiceDeps {
   /** Display name used in the PR body footer (e.g. "Created with [name](url)"). */
   appName: string;
   /** Transfer the matching Neon branch to the GitHub PR lifecycle. */
-  markNeonBranchOwnedByPullRequest: (data: {
+  markNeonBranchOwnedByPullRequest?: (data: {
     sessionId: string;
     gitBranch: string;
     prNumber: number;
@@ -120,6 +129,11 @@ export interface PullRequestServiceDeps {
     repoOwner: string;
     repoName: string;
   }) => Promise<number>;
+  /**
+   * D1 authority store for session PR records (design §4). Absent when the
+   * deployment has no D1 binding; the write is best-effort either way.
+   */
+  sessionPullRequests?: Pick<SessionPullRequestStore, "upsert">;
 }
 
 /**
@@ -283,14 +297,23 @@ export class SessionPullRequestService {
 
       const artifactId = this.deps.generateId();
       const now = Date.now();
-      const artifactMetadata = {
+      // The one PR lifecycle snapshot mapping (pull-request-snapshot.ts):
+      // artifact metadata and the D1 record both derive from this snapshot,
+      // so creation cannot drift from the update paths' field mapping.
+      const snapshot: PullRequestSnapshotInput = {
         number: prResult.id,
-        state: prResult.state,
-        head: sanitizedHeadBranch,
-        base: baseBranch,
+        url: prResult.webUrl,
+        lifecycleState: prResult.lifecycleState,
+        isDraft: prResult.isDraft,
+        headBranch: sanitizedHeadBranch,
+        baseBranch,
+        headSha: prResult.headSha,
         repoOwner: targetRepo.repoOwner,
         repoName: targetRepo.repoName,
+        repositoryExternalId: prResult.repositoryExternalId,
+        providerUpdatedAt: prResult.providerUpdatedAt,
       };
+      const artifactMetadata = mergeSnapshotMetadata({}, snapshot);
       this.deps.repository.createArtifact({
         id: artifactId,
         type: "pr",
@@ -299,32 +322,38 @@ export class SessionPullRequestService {
         createdAt: now,
       });
 
-      try {
-        const updatedResources = await this.deps.markNeonBranchOwnedByPullRequest({
-          sessionId: session.session_name || session.id,
-          gitBranch: sanitizedHeadBranch,
-          prNumber: prResult.id,
-          prUrl: prResult.webUrl,
-          repoOwner: targetRepo.repoOwner,
-          repoName: targetRepo.repoName,
-        });
-        if (updatedResources === 0) {
-          this.deps.log.warn("Created PR without transferring Neon branch ownership", {
+      await this.writeSessionPullRequestRecord(
+        snapshotToRecord(snapshot, { artifactId, sessionId, createdAt: now, updatedAt: now })
+      );
+
+      if (this.deps.markNeonBranchOwnedByPullRequest) {
+        try {
+          const updatedResources = await this.deps.markNeonBranchOwnedByPullRequest({
+            sessionId: session.session_name || session.id,
+            gitBranch: sanitizedHeadBranch,
+            prNumber: prResult.id,
+            prUrl: prResult.webUrl,
+            repoOwner: targetRepo.repoOwner,
+            repoName: targetRepo.repoName,
+          });
+          if (updatedResources === 0) {
+            this.deps.log.warn("Created PR without transferring Neon branch ownership", {
+              session_id: session.id,
+              git_branch: sanitizedHeadBranch,
+              pr_number: prResult.id,
+            });
+          }
+        } catch (error) {
+          // The PR already exists and the artifact is persisted. Keep the
+          // successful result while leaving the cleanup retry/safety net to
+          // handle a transient D1 failure.
+          this.deps.log.warn("Failed to transfer Neon branch ownership to PR", {
             session_id: session.id,
             git_branch: sanitizedHeadBranch,
             pr_number: prResult.id,
+            error: error instanceof Error ? error.message : String(error),
           });
         }
-      } catch (error) {
-        // The PR already exists and the artifact is persisted. Keep the
-        // successful result while leaving the cleanup retry/safety net to
-        // handle a transient D1 failure.
-        this.deps.log.warn("Failed to transfer Neon branch ownership to PR", {
-          session_id: session.id,
-          git_branch: sanitizedHeadBranch,
-          pr_number: prResult.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
       }
 
       this.deps.broadcastArtifactCreated({
@@ -333,13 +362,16 @@ export class SessionPullRequestService {
         url: prResult.webUrl,
         metadata: artifactMetadata,
         createdAt: now,
+        updatedAt: now,
       });
 
       return {
         kind: "created",
         prNumber: prResult.id,
         prUrl: prResult.webUrl,
-        state: prResult.state,
+        // The provider returns only status facts; the display state is
+        // derived here, at the response boundary.
+        state: toDisplayStatus(prResult),
       };
     } catch (error) {
       this.deps.log.error("PR creation failed", {
@@ -361,6 +393,27 @@ export class SessionPullRequestService {
       };
     } finally {
       this.deps.claims.release(targetRepo);
+    }
+  }
+
+  /**
+   * Best-effort creation write to the D1 authority record. Failure is logged
+   * and swallowed: the DO artifact is already persisted, and the first
+   * webhook or read-through repairs a missing record (design §5).
+   */
+  private async writeSessionPullRequestRecord(record: SessionPullRequestRecord): Promise<void> {
+    const store = this.deps.sessionPullRequests;
+    if (!store) return;
+    try {
+      await store.upsert(record);
+    } catch (error) {
+      this.deps.log.error("Failed to write session pull request record", {
+        artifact_id: record.artifactId,
+        pr_number: record.prNumber,
+        repo_owner: record.repoOwner,
+        repo_name: record.repoName,
+        error: error instanceof Error ? error : String(error),
+      });
     }
   }
 

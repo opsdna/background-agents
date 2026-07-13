@@ -5,19 +5,14 @@ import { useRouter } from "next/navigation";
 import { mutate } from "swr";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { useSidebarContext } from "@/components/sidebar-layout";
-import { Button } from "@/components/ui/button";
+import { CollapsedSidebarControls, useSidebarContext } from "@/components/sidebar-layout";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { formatModelNameLower } from "@/lib/format";
 import { SHORTCUT_LABELS } from "@/lib/keyboard-shortcuts";
 import { isUnarchivedSessionListKey } from "@/lib/session-list";
 import { APP_NAME } from "@/lib/site-config";
-import {
-  DEFAULT_MODEL,
-  getDefaultReasoningEffort,
-  isValidReasoningEffort,
-  type ModelCategory,
-} from "@open-inspect/shared";
+import { DEFAULT_MODEL, getDefaultReasoningEffort, type ModelCategory } from "@open-inspect/shared";
+import { resolveModelPreference, type ModelPreference } from "@/lib/model-selection";
 import { useEnabledModels } from "@/hooks/use-enabled-models";
 import {
   useSessionTargetPicker,
@@ -25,7 +20,7 @@ import {
 } from "@/hooks/use-session-target-picker";
 import { SessionTargetPicker } from "@/components/session-target-picker";
 import { ReasoningEffortPills } from "@/components/reasoning-effort-pills";
-import { SidebarIcon, ModelIcon, SendIcon } from "@/components/ui/icons";
+import { ModelIcon, SendIcon } from "@/components/ui/icons";
 import { Combobox, type ComboboxGroup } from "@/components/ui/combobox";
 
 const LAST_SELECTED_MODEL_STORAGE_KEY = "open-inspect-last-selected-model";
@@ -36,10 +31,11 @@ export default function Home() {
   const router = useRouter();
   const picker = useSessionTargetPicker();
   const { sessionTarget, selectedBranch, configKey, buildRequestFields, isLaunchable } = picker;
-  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
-  const [reasoningEffort, setReasoningEffort] = useState<string | undefined>(
-    getDefaultReasoningEffort(DEFAULT_MODEL)
-  );
+  const [storedPreference, setStoredPreference] = useState<ModelPreference>({
+    model: DEFAULT_MODEL,
+    reasoningEffort: getDefaultReasoningEffort(DEFAULT_MODEL),
+  });
+  const [modelPreferenceDraft, setModelPreferenceDraft] = useState<ModelPreference | null>(null);
   const [prompt, setPrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -49,42 +45,31 @@ export default function Home() {
   const abortControllerRef = useRef<AbortController | null>(null);
   // Keyed by the picker's configKey so environment/ad-hoc selections
   // invalidate a warmed session exactly like repo/branch changes do.
-  const pendingConfigRef = useRef<{ target: string; model: string; branch: string } | null>(null);
+  const pendingConfigRef = useRef<{
+    target: string;
+    model: string;
+    reasoningEffort?: string;
+    branch: string;
+  } | null>(null);
   const [hasHydratedModelPreferences, setHasHydratedModelPreferences] = useState(false);
-  const { enabledModels, enabledModelOptions } = useEnabledModels();
+  const { enabledModels, enabledModelOptions, loading: loadingEnabledModels } = useEnabledModels();
 
   useEffect(() => {
-    if (enabledModels.length === 0 || hasHydratedModelPreferences) return;
+    if (hasHydratedModelPreferences) return;
 
     const storedModel = localStorage.getItem(LAST_SELECTED_MODEL_STORAGE_KEY);
-    const selectedModelFromStorage =
-      storedModel && enabledModels.includes(storedModel)
-        ? storedModel
-        : (enabledModels[0] ?? DEFAULT_MODEL);
-
     const storedReasoningEffort = localStorage.getItem(LAST_SELECTED_REASONING_EFFORT_STORAGE_KEY);
-    const reasoningEffortFromStorage =
-      storedReasoningEffort &&
-      isValidReasoningEffort(selectedModelFromStorage, storedReasoningEffort)
-        ? storedReasoningEffort
-        : getDefaultReasoningEffort(selectedModelFromStorage);
-
-    setSelectedModel(selectedModelFromStorage);
-    setReasoningEffort(reasoningEffortFromStorage);
+    setStoredPreference({
+      model: storedModel ?? DEFAULT_MODEL,
+      reasoningEffort: storedReasoningEffort ?? undefined,
+    });
     setHasHydratedModelPreferences(true);
-  }, [enabledModels, hasHydratedModelPreferences]);
+  }, [hasHydratedModelPreferences]);
 
-  useEffect(() => {
-    if (!hasHydratedModelPreferences) return;
-    localStorage.setItem(LAST_SELECTED_MODEL_STORAGE_KEY, selectedModel);
-
-    if (reasoningEffort) {
-      localStorage.setItem(LAST_SELECTED_REASONING_EFFORT_STORAGE_KEY, reasoningEffort);
-      return;
-    }
-
-    localStorage.removeItem(LAST_SELECTED_REASONING_EFFORT_STORAGE_KEY);
-  }, [hasHydratedModelPreferences, selectedModel, reasoningEffort]);
+  const { model: selectedModel, reasoningEffort } = resolveModelPreference(
+    modelPreferenceDraft ?? storedPreference,
+    loadingEnabledModels ? undefined : enabledModels
+  );
 
   useEffect(() => {
     if (abortControllerRef.current) {
@@ -95,9 +80,10 @@ export default function Home() {
     setIsCreatingSession(false);
     sessionCreationPromise.current = null;
     pendingConfigRef.current = null;
-  }, [sessionTarget, selectedModel, selectedBranch]);
+  }, [sessionTarget, selectedModel, reasoningEffort, selectedBranch]);
 
   const createSessionForWarming = useCallback(async () => {
+    if (loadingEnabledModels) return null;
     if (pendingSessionId) return pendingSessionId;
     if (sessionCreationPromise.current) return sessionCreationPromise.current;
     const targetRequestFields = buildRequestFields();
@@ -107,6 +93,7 @@ export default function Home() {
     const currentConfig = {
       target: configKey,
       model: selectedModel,
+      reasoningEffort,
       branch: sessionTarget?.kind === "repo" ? selectedBranch : "",
     };
     pendingConfigRef.current = currentConfig;
@@ -132,6 +119,7 @@ export default function Home() {
           if (
             pendingConfigRef.current?.target === currentConfig.target &&
             pendingConfigRef.current?.model === currentConfig.model &&
+            pendingConfigRef.current?.reasoningEffort === currentConfig.reasoningEffort &&
             pendingConfigRef.current?.branch === currentConfig.branch
           ) {
             setPendingSessionId(data.sessionId);
@@ -165,40 +153,51 @@ export default function Home() {
     selectedModel,
     reasoningEffort,
     pendingSessionId,
+    loadingEnabledModels,
   ]);
 
-  // Reset selections when model preferences change (only after hydration)
-  useEffect(() => {
-    if (!hasHydratedModelPreferences) return;
-
-    if (enabledModels.length > 0 && !enabledModels.includes(selectedModel)) {
-      const fallback = enabledModels[0] ?? DEFAULT_MODEL;
-      setSelectedModel(fallback);
-      setReasoningEffort(getDefaultReasoningEffort(fallback));
-      return;
+  const saveModelPreferenceDraft = useCallback((preference: ModelPreference) => {
+    setModelPreferenceDraft(preference);
+    localStorage.setItem(LAST_SELECTED_MODEL_STORAGE_KEY, preference.model);
+    if (preference.reasoningEffort) {
+      localStorage.setItem(LAST_SELECTED_REASONING_EFFORT_STORAGE_KEY, preference.reasoningEffort);
+    } else {
+      localStorage.removeItem(LAST_SELECTED_REASONING_EFFORT_STORAGE_KEY);
     }
-
-    if (reasoningEffort && !isValidReasoningEffort(selectedModel, reasoningEffort)) {
-      setReasoningEffort(getDefaultReasoningEffort(selectedModel));
-    }
-  }, [hasHydratedModelPreferences, enabledModels, selectedModel, reasoningEffort]);
-
-  const handleModelChange = useCallback((model: string) => {
-    setSelectedModel(model);
-    setReasoningEffort(getDefaultReasoningEffort(model));
   }, []);
+
+  const handleModelChange = useCallback(
+    (model: string) => {
+      saveModelPreferenceDraft({ model, reasoningEffort: getDefaultReasoningEffort(model) });
+    },
+    [saveModelPreferenceDraft]
+  );
+
+  const handleReasoningEffortChange = useCallback(
+    (nextReasoningEffort: string | undefined) => {
+      saveModelPreferenceDraft({ model: selectedModel, reasoningEffort: nextReasoningEffort });
+    },
+    [saveModelPreferenceDraft, selectedModel]
+  );
 
   const handlePromptChange = (value: string) => {
     const wasEmpty = prompt.length === 0;
     setPrompt(value);
-    if (wasEmpty && value.length > 0 && !pendingSessionId && !isCreatingSession && isLaunchable) {
+    if (
+      wasEmpty &&
+      value.length > 0 &&
+      !pendingSessionId &&
+      !isCreatingSession &&
+      !loadingEnabledModels &&
+      isLaunchable
+    ) {
       createSessionForWarming();
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || loadingEnabledModels) return;
     if (!isLaunchable) {
       setError(
         sessionTarget?.kind === "repos"
@@ -254,7 +253,7 @@ export default function Home() {
       selectedModel={selectedModel}
       setSelectedModel={handleModelChange}
       reasoningEffort={reasoningEffort}
-      setReasoningEffort={setReasoningEffort}
+      setReasoningEffort={handleReasoningEffortChange}
       prompt={prompt}
       handlePromptChange={handlePromptChange}
       creating={creating}
@@ -295,7 +294,7 @@ function HomeContent({
   handleSubmit: (e: React.FormEvent) => void;
   modelOptions: ModelCategory[];
 }) {
-  const { isOpen, toggle } = useSidebarContext();
+  const { isOpen } = useSidebarContext();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { sessionTarget, selectedRepo, repos, loadingRepos, isLaunchable } = picker;
 
@@ -314,15 +313,7 @@ function HomeContent({
       {!isOpen && (
         <header className="border-b border-border-muted flex-shrink-0">
           <div className="px-4 py-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggle}
-              title={`Open sidebar (${SHORTCUT_LABELS.TOGGLE_SIDEBAR})`}
-              aria-label={`Open sidebar (${SHORTCUT_LABELS.TOGGLE_SIDEBAR})`}
-            >
-              <SidebarIcon className="w-4 h-4" />
-            </Button>
+            <CollapsedSidebarControls />
           </div>
         </header>
       )}
@@ -427,7 +418,7 @@ function HomeContent({
                 </div>
               </div>
 
-              {/* Secrets disclosure per launch unit (design §7.4) */}
+              {/* Secrets disclosure per session target (design §7.4) */}
               {sessionTarget?.kind === "environment" && (
                 <p className="mt-3 text-xs text-muted-foreground text-center">
                   Sessions from this environment use global secrets plus the environment&apos;s
