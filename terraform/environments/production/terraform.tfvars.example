@@ -194,6 +194,7 @@ enable_linear_bot = false
 linear_client_id = ""        # OAuth Application Client ID
 linear_client_secret = ""    # OAuth Application Client Secret
 linear_webhook_secret = ""   # Webhook Signing Secret from the application config
+preview_feedback_dispatch_hmac_secret = "" # 32+ byte secret shared with the OpsDNA API
 
 # =============================================================================
 # API Keys

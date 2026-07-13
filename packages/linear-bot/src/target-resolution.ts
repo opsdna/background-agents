@@ -26,6 +26,10 @@ import { getLinearConfig, type ResolvedLinearConfig } from "./utils/integration-
 import { resolveStaticTarget } from "./model-resolution";
 import { getProjectRepoMapping, getTeamRepoMapping } from "./kv-store";
 import { createLogger } from "./logger";
+import {
+  getPreviewFeedbackDispatch,
+  type PreviewFeedbackAgentProfile,
+} from "./preview-feedback-dispatch";
 
 const log = createLogger("target-resolution");
 
@@ -166,11 +170,14 @@ export interface ResolveSessionTargetParams {
   projectInfo: { id: string; name: string } | null | undefined;
   comment: { body: string } | null | undefined;
   traceId: string;
+  issueDescription?: string | null;
 }
 
 export interface ResolvedSessionTarget {
   target: SessionTarget;
   reasoning: string | null;
+  baseBranch?: string;
+  previewFeedbackProfile?: PreviewFeedbackAgentProfile;
 }
 
 /**
@@ -180,7 +187,32 @@ export interface ResolvedSessionTarget {
 export async function resolveSessionTarget(
   params: ResolveSessionTargetParams
 ): Promise<ResolvedSessionTarget | null> {
-  const { env, client, agentSessionId, issue, labelNames, projectInfo, comment, traceId } = params;
+  const {
+    env,
+    client,
+    agentSessionId,
+    issue,
+    labelNames,
+    projectInfo,
+    comment,
+    traceId,
+    issueDescription,
+  } = params;
+
+  const previewDispatch = await getPreviewFeedbackDispatch(
+    env,
+    issue.id,
+    issueDescription ?? issue.description
+  );
+  if (previewDispatch) {
+    const { owner, name } = splitRepoFullName(previewDispatch.repository);
+    return {
+      target: repositoryTarget(owner, name, previewDispatch.repository),
+      reasoning: "Trusted OpsDNA preview feedback dispatch",
+      baseBranch: previewDispatch.baseBranch,
+      previewFeedbackProfile: previewDispatch.profile,
+    };
+  }
 
   // 1. Check project→target mapping FIRST
   if (projectInfo?.id) {

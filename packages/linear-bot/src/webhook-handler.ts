@@ -33,6 +33,7 @@ import {
   type SessionTarget,
 } from "./target-resolution";
 import { getUserPreferences, lookupIssueSession, storeIssueSession } from "./kv-store";
+import { previewFeedbackProfileInstructions } from "./preview-feedback-dispatch";
 
 const log = createLogger("handler");
 
@@ -139,6 +140,7 @@ async function createSession(
     actorUserId?: string;
     actorDisplayName?: string;
     actorEmail?: string;
+    branch?: string;
   },
   traceId?: string
 ): Promise<{ ok: true; sessionId: string } | { ok: false; status: number; body: string }> {
@@ -469,10 +471,16 @@ async function handleNewSession(
     projectInfo,
     comment,
     traceId,
+    issueDescription: issueDetails?.description,
   });
   if (!resolved) return;
 
-  const { target, reasoning: classificationReasoning } = resolved;
+  const {
+    target,
+    reasoning: classificationReasoning,
+    baseBranch,
+    previewFeedbackProfile,
+  } = resolved;
   const label = targetLabel(target);
 
   const integration = await resolveTargetIntegration(env, target);
@@ -545,6 +553,7 @@ async function handleNewSession(
       actorUserId: sessionActorUserId,
       actorDisplayName,
       actorEmail,
+      ...(baseBranch ? { branch: baseBranch } : {}),
     },
     traceId
   );
@@ -581,6 +590,7 @@ async function handleNewSession(
     issueId: issue.id,
     issueIdentifier: issue.identifier,
     ...targetRequestFields(target),
+    ...(baseBranch ? { baseBranch } : {}),
     model,
     agentSessionId,
     createdAt: Date.now(),
@@ -605,6 +615,13 @@ async function handleNewSession(
     prompt += `\n\n## Additional Instructions\n\n${integrationConfig.issueSessionInstructions}`;
   }
 
+  if (previewFeedbackProfile && target.kind === "repository" && baseBranch) {
+    prompt += `\n\n${previewFeedbackProfileInstructions({
+      profile: previewFeedbackProfile,
+      repository: target.fullName,
+      baseBranch,
+    })}`;
+  }
   const promptRes = await env.CONTROL_PLANE.fetch(
     `https://internal/sessions/${session.sessionId}/prompt`,
     {

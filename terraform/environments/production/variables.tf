@@ -273,6 +273,13 @@ variable "linear_webhook_secret" {
   sensitive   = true
 }
 
+variable "preview_feedback_dispatch_hmac_secret" {
+  description = "HMAC secret used to verify OpsDNA-authored Linear dispatch markers"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "linear_api_key" {
   description = "Linear API key for fallback comment posting"
   type        = string

@@ -31,6 +31,7 @@ export interface Env {
   LINEAR_API_KEY?: string; // kept for backward compat / fallback
   ANTHROPIC_API_KEY: string;
   INTERNAL_CALLBACK_SECRET?: string;
+  PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET?: string;
   LOG_LEVEL?: string;
 }
 
@@ -106,6 +107,8 @@ export interface IssueSession {
   /** Set for repository sessions; absent for environment sessions. */
   repoOwner?: string;
   repoName?: string;
+  /** Source branch the agent should inspect and target with its pull request. */
+  baseBranch?: string;
   /** Set for environment sessions. */
   environmentId?: string;
   model: string;

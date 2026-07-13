@@ -591,7 +591,67 @@ describe("handleAgentSessionEvent environment targets", () => {
     );
     expect(JSON.parse(String(promptCall?.[1]?.body))).not.toHaveProperty("authorId");
   });
+  it("launches preview feedback on its trusted branch with the research profile", async () => {
+    const { kv, store } = createFakeKV({ "oauth:token:org-1": validToken() });
+    const env = makeLinearBotEnv(kv);
+    env.PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET = "dispatch-secret-at-least-thirty-two-bytes";
+    const description = await signedPreviewDispatch(env.PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET, {
+      version: 1,
+      issueId: "issue-1",
+      profile: "research",
+      repository: "opsdna/opsdna",
+      baseBranch: "codex/preview-feedback",
+    });
+    const fetchMock = stubControlPlane(env);
+    const webhook = makeWebhook();
+    webhook.agentSession.issue!.description = description;
+
+    await handleAgentSessionEvent(webhook, env, "trace-preview-feedback");
+
+    expect(createSessionBody(fetchMock)).toMatchObject({
+      repoOwner: "opsdna",
+      repoName: "opsdna",
+      branch: "codex/preview-feedback",
+    });
+    expect(createSessionBody(fetchMock)).not.toHaveProperty("baseBranch");
+    const promptCall = fetchMock.mock.calls.find(
+      ([input]) => String(input) === "https://internal/sessions/session-xyz/prompt"
+    );
+    const prompt = JSON.parse(String((promptCall?.[1] as RequestInit).body)).content as string;
+    expect(prompt).toContain("Trusted OpsDNA agent profile: Research");
+    expect(prompt).toContain("Do not modify files");
+    expect(prompt).toContain("explicit greenlight");
+    expect(JSON.parse(store.get("issue:issue-1") ?? "null")).toMatchObject({
+      repoOwner: "opsdna",
+      repoName: "opsdna",
+      baseBranch: "codex/preview-feedback",
+    });
+  });
 });
+
+async function signedPreviewDispatch(
+  secret: string,
+  value: Record<string, unknown>
+): Promise<string> {
+  const payload = btoa(JSON.stringify(value))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = [
+    ...new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(payload))),
+  ]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `<!-- opsdna-preview-dispatch:v1 payload=${payload} signature=${signature} -->`;
+}
 
 describe("handleAgentSessionEvent auth failures", () => {
   beforeEach(() => {

@@ -57,6 +57,7 @@ module "linear_bot_worker" {
     { name = "INTERNAL_CALLBACK_SECRET", value = var.internal_callback_secret },
     { name = "ANTHROPIC_API_KEY", value = var.anthropic_api_key },
     { name = "LINEAR_API_KEY", value = var.linear_api_key },
+    { name = "PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET", value = var.preview_feedback_dispatch_hmac_secret },
   ]
 
   compatibility_date  = "2024-09-23"
