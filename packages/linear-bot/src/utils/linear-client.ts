@@ -372,6 +372,63 @@ export async function createIssueAttachment(
   if (!success) throw new Error("Linear attachment creation failed");
 }
 
+export async function createComment(
+  client: LinearApiClient,
+  issueId: string,
+  body: string
+): Promise<void> {
+  const result = await linearGraphQL(
+    client,
+    `
+      mutation PreviewFeedbackCommentCreate($input: CommentCreateInput!) {
+        commentCreate(input: $input) { success }
+      }
+    `,
+    { input: { issueId, body } }
+  );
+  const success = (result as { data?: { commentCreate?: { success?: boolean } } }).data
+    ?.commentCreate?.success;
+  if (!success) throw new Error("Linear comment creation failed");
+}
+
+export interface CreatedLinearAgentSession {
+  id: string;
+  url: string | null;
+  status: string;
+}
+
+export async function createAgentSessionOnIssue(
+  client: LinearApiClient,
+  issueId: string
+): Promise<CreatedLinearAgentSession> {
+  const result = await linearGraphQL(
+    client,
+    `
+      mutation PreviewFeedbackAgentSessionCreate($input: AgentSessionCreateOnIssue!) {
+        agentSessionCreateOnIssue(input: $input) {
+          success
+          agentSession { id url status }
+        }
+      }
+    `,
+    { input: { issueId } }
+  );
+  const payload = (
+    result as {
+      data?: {
+        agentSessionCreateOnIssue?: {
+          success?: boolean;
+          agentSession?: CreatedLinearAgentSession;
+        };
+      };
+    }
+  ).data?.agentSessionCreateOnIssue;
+  if (!payload?.success || !payload.agentSession) {
+    throw new Error("Linear agent session creation failed");
+  }
+  return payload.agentSession;
+}
+
 export async function getLinearClient(env: Env, orgId: string): Promise<LinearApiClient | null> {
   try {
     return await getLinearClientOrThrow(env, orgId);

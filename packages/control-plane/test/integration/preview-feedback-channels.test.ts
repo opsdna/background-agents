@@ -68,6 +68,7 @@ describe("preview feedback channel registry", () => {
       baseSha: "a".repeat(40),
       parentLinearIssueId: "linear-parent-id",
       parentLinearIssueIdentifier: "OPS-1000",
+      linearAgentSessionId: "linear-agent-session-id",
     });
     expect(update.status).toBe(200);
     expect(await update.json()).toMatchObject({
@@ -88,9 +89,20 @@ describe("preview feedback channel registry", () => {
       channel: { baseBranch: claimBody("x").baseBranch },
     });
 
+    const attach = await post("/preview-feedback/channels/attach-session", {
+      parentLinearIssueId: "linear-parent-id",
+      linearAgentSessionId: "linear-agent-session-id",
+      openInspectSessionId: "open-inspect-session-id",
+      now: NOW + 2,
+    });
+    expect(attach.status).toBe(200);
+    expect(await attach.json()).toMatchObject({
+      channel: { status: "agent_active", openInspectSessionId: "open-inspect-session-id" },
+    });
+
     const nextClaim = await post("/preview-feedback/channels/claim", {
       ...claimBody("worker-b"),
-      now: NOW + 2,
+      now: NOW + 3,
     });
     expect(nextClaim.status).toBe(200);
     expect(await nextClaim.json()).toMatchObject({ claimed: true });

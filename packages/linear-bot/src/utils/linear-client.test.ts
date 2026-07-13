@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createAgentSessionOnIssue,
+  createComment,
   createIssueAttachment,
   fetchUser,
   getOAuthTokenOrThrow,
@@ -158,6 +160,43 @@ describe("preview feedback Linear assets", () => {
       url: "https://preview.example/funds",
       metadata: { feedbackId: "feedback-id", prNumber: 1548 },
     });
+  });
+
+  it("uses the pinned proactive Agent Session mutation shape", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: { commentCreate: { success: true } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              agentSessionCreateOnIssue: {
+                success: true,
+                agentSession: {
+                  id: "linear-agent-session",
+                  url: "https://linear.app/agent/session",
+                  status: "pending",
+                },
+              },
+            },
+          }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createComment(client, "parent-id", "Fix requested for OPS-1001");
+    await expect(createAgentSessionOnIssue(client, "parent-id")).resolves.toEqual({
+      id: "linear-agent-session",
+      url: "https://linear.app/agent/session",
+      status: "pending",
+    });
+    const commentInput = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)).variables.input;
+    const sessionInput = JSON.parse(String(fetchMock.mock.calls[1]![1]?.body)).variables.input;
+    expect(commentInput).toEqual({ issueId: "parent-id", body: "Fix requested for OPS-1001" });
+    expect(sessionInput).toEqual({ issueId: "parent-id" });
   });
 });
 

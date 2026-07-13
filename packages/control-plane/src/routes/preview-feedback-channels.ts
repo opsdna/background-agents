@@ -196,6 +196,34 @@ async function updateChannel(request: Request, env: Env): Promise<Response> {
   return channel ? json({ channel }) : error("Preview feedback channel lease lost", 409);
 }
 
+async function attachSession(request: Request, env: Env): Promise<Response> {
+  const body = await boundedBody<{
+    parentLinearIssueId?: unknown;
+    linearAgentSessionId?: unknown;
+    openInspectSessionId?: unknown;
+    now?: unknown;
+  }>(request);
+  if (body instanceof Response) return body;
+  const parentLinearIssueId = requiredString(body.parentLinearIssueId);
+  const linearAgentSessionId = requiredString(body.linearAgentSessionId);
+  const openInspectSessionId = requiredString(body.openInspectSessionId);
+  if (
+    !parentLinearIssueId ||
+    !linearAgentSessionId ||
+    !openInspectSessionId ||
+    !safeInteger(body.now)
+  ) {
+    return error("Invalid preview feedback session attachment", 400);
+  }
+  const channel = await new PreviewFeedbackChannelStore(env.DB).attachOpenInspectSession({
+    parentLinearIssueId,
+    linearAgentSessionId,
+    openInspectSessionId,
+    now: body.now,
+  });
+  return channel ? json({ channel }) : error("Preview feedback channel session mismatch", 409);
+}
+
 export const previewFeedbackChannelRoutes: Route[] = [
   {
     method: "POST",
@@ -216,5 +244,10 @@ export const previewFeedbackChannelRoutes: Route[] = [
     method: "POST",
     pattern: parsePattern("/preview-feedback/channels/by-parent"),
     handler: (request, env) => getChannelByParent(request, env),
+  },
+  {
+    method: "POST",
+    pattern: parsePattern("/preview-feedback/channels/attach-session"),
+    handler: (request, env) => attachSession(request, env),
   },
 ];

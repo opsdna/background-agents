@@ -504,6 +504,32 @@ async function handleNewSession(
     createdAt: Date.now(),
   });
 
+  const previewChannelKey = await env.LINEAR_KV.get(`preview-feedback:parent:${issue.id}`);
+  if (previewChannelKey) {
+    const attachResponse = await env.CONTROL_PLANE.fetch(
+      "https://internal/preview-feedback/channels/attach-session",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          parentLinearIssueId: issue.id,
+          linearAgentSessionId: agentSessionId,
+          openInspectSessionId: session.sessionId,
+          now: Date.now(),
+        }),
+      }
+    );
+    if (!attachResponse.ok) {
+      log.error("preview_feedback.channel_session_attach_failed", {
+        trace_id: traceId,
+        linear_issue_id: issue.id,
+        agent_session_id: agentSessionId,
+        session_id: session.sessionId,
+        http_status: attachResponse.status,
+      });
+    }
+  }
+
   // Set externalUrls and update plan
   await updateAgentSession(client, agentSessionId, {
     externalUrls: [
