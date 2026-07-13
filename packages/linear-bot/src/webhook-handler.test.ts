@@ -382,8 +382,9 @@ describe("handleAgentSessionEvent environment targets", () => {
     expect(createSessionBody(fetchMock)).toMatchObject({
       repoOwner: "opsdna",
       repoName: "opsdna",
-      baseBranch: "codex/preview-feedback",
+      branch: "codex/preview-feedback",
     });
+    expect(createSessionBody(fetchMock)).not.toHaveProperty("baseBranch");
     const promptCall = fetchMock.mock.calls.find(
       ([input]) => String(input) === "https://internal/sessions/session-xyz/prompt"
     );
