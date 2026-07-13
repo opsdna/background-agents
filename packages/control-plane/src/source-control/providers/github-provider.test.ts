@@ -10,7 +10,6 @@ vi.mock("../../auth/github-app", () => ({
   getInstallationTokenCacheKey: vi.fn(),
   invalidateInstallationTokenCache: vi.fn(),
   getInstallationRepository: vi.fn(),
-  getRepositoryBranchHead: vi.fn(),
   listInstallationRepositories: vi.fn(),
   fetchWithTimeout: vi.fn(),
 }));
@@ -22,12 +21,10 @@ import {
   getInstallationTokenCacheKey,
   invalidateInstallationTokenCache,
   getInstallationRepository,
-  getRepositoryBranchHead,
   listInstallationRepositories,
 } from "../../auth/github-app";
 
 const mockGetInstallationRepository = vi.mocked(getInstallationRepository);
-const mockGetRepositoryBranchHead = vi.mocked(getRepositoryBranchHead);
 const mockListInstallationRepositories = vi.mocked(listInstallationRepositories);
 const mockGetCachedInstallationTokenWithExpiry = vi.mocked(getCachedInstallationTokenWithExpiry);
 const mockGetCachedInstallationToken = vi.mocked(getCachedInstallationToken);
@@ -362,27 +359,6 @@ describe("GitHubSourceControlProvider", () => {
       const repos = await provider.listRepositories();
 
       expect(repos.map((repo) => repo.fullName)).toEqual(["acme/active"]);
-    });
-  });
-
-  describe("getBranchHead", () => {
-    it("resolves a branch with GitHub App credentials", async () => {
-      mockGetRepositoryBranchHead.mockResolvedValueOnce({
-        name: "feature/preview",
-        sha: "a".repeat(40),
-      });
-      const provider = new GitHubSourceControlProvider({ appConfig: fakeAppConfig });
-
-      await expect(
-        provider.getBranchHead({ owner: "acme", name: "web", branch: "feature/preview" })
-      ).resolves.toEqual({ name: "feature/preview", sha: "a".repeat(40) });
-    });
-
-    it("refuses resolution when the GitHub App is not configured", async () => {
-      const provider = new GitHubSourceControlProvider();
-      await expect(
-        provider.getBranchHead({ owner: "acme", name: "web", branch: "feature/preview" })
-      ).rejects.toMatchObject({ errorType: "permanent" });
     });
   });
 
