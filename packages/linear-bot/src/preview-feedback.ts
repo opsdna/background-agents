@@ -316,54 +316,76 @@ async function activatePreviewAgentAttempt(
   }
   const baseSha = resolved.channel.baseSha;
   if (!baseSha) throw new Error("Preview feedback branch head was not resolved");
-  if (claim.channel.openInspectSessionId) {
+  let channel = resolved.channel;
+  if (channel.openInspectSessionId) {
     const headers = {
       "content-type": "application/json",
       ...(await buildInternalAuthHeaders(env.INTERNAL_CALLBACK_SECRET)),
     };
-    const promptResponse = await env.CONTROL_PLANE.fetch(
-      `https://internal/sessions/${claim.channel.openInspectSessionId}/prompt`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          content: previewAgentPrompt(envelope, childIssue, {
-            baseSha,
-            synchronize: resolved.channel.sessionSyncedSha !== baseSha,
+    const stateResponse = await env.CONTROL_PLANE.fetch(
+      `https://internal/sessions/${channel.openInspectSessionId}`,
+      { headers }
+    );
+    const stale =
+      stateResponse.status === 404 ||
+      (stateResponse.ok && sessionStatusIsTerminal(await readSessionStatus(stateResponse)));
+    if (!stateResponse.ok && stateResponse.status !== 404) {
+      throw new Error("Existing preview session state was unavailable");
+    }
+    if (stale) {
+      channel = await resetPreviewSession(env, channelKey, leaseOwner);
+    } else {
+      const promptResponse = await env.CONTROL_PLANE.fetch(
+        `https://internal/sessions/${channel.openInspectSessionId}/prompt`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            content: previewAgentPrompt(envelope, childIssue, {
+              baseSha,
+              synchronize: channel.sessionSyncedSha !== baseSha,
+            }),
+            authorId: `preview-feedback:${envelope.reporter.identityId}`,
+            source: "linear-preview-feedback",
+            callbackContext: {
+              source: "linear",
+              issueId: childIssue.id,
+              issueIdentifier: childIssue.identifier,
+              issueUrl: childIssue.url,
+              repoFullName: envelope.deployment.repository,
+              model: env.DEFAULT_MODEL,
+              organizationId,
+            },
           }),
-          authorId: `preview-feedback:${envelope.reporter.identityId}`,
-          source: "linear-preview-feedback",
-          callbackContext: {
-            source: "linear",
-            issueId: childIssue.id,
-            issueIdentifier: childIssue.identifier,
-            issueUrl: childIssue.url,
-            repoFullName: envelope.deployment.repository,
-            model: env.DEFAULT_MODEL,
-            organizationId,
-          },
-        }),
+        }
+      );
+      if (!promptResponse.ok) {
+        if (promptResponse.status === 404 || promptResponse.status === 409) {
+          channel = await resetPreviewSession(env, channelKey, leaseOwner);
+        } else {
+          throw new Error("Existing preview session rejected the prompt");
+        }
+      } else {
+        await controlPlaneChannelRequest(env, "/preview-feedback/channels/update", {
+          channelKey,
+          leaseOwner,
+          now,
+          status: "agent_active",
+        });
+        const sessionUrl = `${env.WEB_APP_URL}/session/${channel.openInspectSessionId}`;
+        await commentOnChildBestEffort(
+          env,
+          childIssue,
+          `Added to the active Open Inspect session: ${sessionUrl}`
+        );
+        return {
+          status: "queued",
+          sessionUrl,
+        };
       }
-    );
-    if (!promptResponse.ok) throw new Error("Existing preview session rejected the prompt");
-    await controlPlaneChannelRequest(env, "/preview-feedback/channels/update", {
-      channelKey,
-      leaseOwner,
-      now,
-      status: "agent_active",
-    });
-    const sessionUrl = `${env.WEB_APP_URL}/session/${claim.channel.openInspectSessionId}`;
-    await commentOnChildBestEffort(
-      env,
-      childIssue,
-      `Added to the active Open Inspect session: ${sessionUrl}`
-    );
-    return {
-      status: "queued",
-      sessionUrl,
-    };
+    }
   }
-  if (claim.channel.linearAgentSessionId) {
+  if (channel.linearAgentSessionId) {
     await controlPlaneChannelRequest(env, "/preview-feedback/channels/update", {
       channelKey,
       leaseOwner,
@@ -371,7 +393,7 @@ async function activatePreviewAgentAttempt(
       status: "provisioning",
     });
     if (claimAttempt < (services.activationClaimRetries ?? 4)) {
-      const attached = await waitForAgentAttachment(env, channelKey, claim.channel, services);
+      const attached = await waitForAgentAttachment(env, channelKey, channel, services);
       if (attached) {
         return activatePreviewAgentAttempt(env, envelope, childIssue, services, claimAttempt + 1);
       }
@@ -421,6 +443,33 @@ async function activatePreviewAgentAttempt(
     }
     throw error;
   }
+}
+
+async function readSessionStatus(response: Response): Promise<unknown> {
+  try {
+    return ((await response.json()) as { status?: unknown }).status;
+  } catch {
+    return null;
+  }
+}
+
+function sessionStatusIsTerminal(status: unknown): boolean {
+  return (
+    status === "archived" || status === "cancelled" || status === "completed" || status === "failed"
+  );
+}
+
+async function resetPreviewSession(
+  env: Env,
+  channelKey: string,
+  leaseOwner: string
+): Promise<PreviewFeedbackChannelResponse["channel"]> {
+  const reset = await controlPlaneChannelRequest(env, "/preview-feedback/channels/reset-session", {
+    channelKey,
+    leaseOwner,
+    now: Date.now(),
+  });
+  return reset.channel;
 }
 
 async function waitForAgentAttachment(
