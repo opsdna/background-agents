@@ -440,6 +440,7 @@ describe("preview feedback agent reuse", () => {
           },
         })
       )
+      .mockResolvedValueOnce(Response.json({ status: "active" }))
       .mockResolvedValueOnce(Response.json({ accepted: true }))
       .mockResolvedValueOnce(
         Response.json({
@@ -471,7 +472,7 @@ describe("preview feedback agent reuse", () => {
       status: "queued",
       sessionUrl: "https://web.example.test/session/open-inspect-session",
     });
-    const promptRequest = controlPlaneFetch.mock.calls[2]![1] as RequestInit;
+    const promptRequest = controlPlaneFetch.mock.calls[3]![1] as RequestInit;
     const prompt = JSON.parse(String(promptRequest.body));
     expect(prompt.source).toBe("linear-preview-feedback");
     expect(prompt.content).toContain("<untrusted-preview-feedback>");
@@ -518,6 +519,7 @@ describe("preview feedback agent reuse", () => {
           },
         })
       )
+      .mockResolvedValueOnce(Response.json({ status: "active" }))
       .mockResolvedValueOnce(Response.json({ accepted: true }))
       .mockResolvedValueOnce(Response.json({ channel: attachedChannel }));
     const configured = env(kv);
@@ -550,7 +552,87 @@ describe("preview feedback agent reuse", () => {
       "https://internal/preview-feedback/channels/get",
       "https://internal/preview-feedback/channels/claim",
       "https://internal/preview-feedback/channels/resolve-base",
+      "https://internal/sessions/open-inspect-session",
       "https://internal/sessions/open-inspect-session/prompt",
+      "https://internal/preview-feedback/channels/update",
+    ]);
+  });
+
+  it("replaces an archived session before handling new feedback", async () => {
+    const { kv } = createFakeKV({
+      "oauth:token:linear-org": JSON.stringify({
+        access_token: "linear-token",
+        refresh_token: "refresh-token",
+        expires_at: Date.now() + 10 * 60 * 1000,
+      }),
+    });
+    const staleChannel = {
+      parentLinearIssueId: "parent-id",
+      parentLinearIssueIdentifier: "OPS-1000",
+      linearAgentSessionId: "stale-linear-session",
+      openInspectSessionId: "stale-open-inspect-session",
+    };
+    const resetChannel = {
+      ...staleChannel,
+      linearAgentSessionId: null,
+      openInspectSessionId: null,
+      sessionSyncedSha: null,
+    };
+    const controlPlaneFetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ claimed: true, channel: staleChannel }))
+      .mockResolvedValueOnce(
+        Response.json({ channel: { ...staleChannel, baseSha: "c".repeat(40) } })
+      )
+      .mockResolvedValueOnce(Response.json({ status: "archived" }))
+      .mockResolvedValueOnce(Response.json({ channel: resetChannel }))
+      .mockResolvedValueOnce(
+        Response.json({
+          channel: { ...resetChannel, linearAgentSessionId: "replacement-linear-session" },
+        })
+      );
+    const linearFetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ data: { commentCreate: { success: true } } }))
+      .mockResolvedValueOnce(
+        Response.json({
+          data: {
+            agentSessionCreateOnIssue: {
+              success: true,
+              agentSession: {
+                id: "replacement-linear-session",
+                url: "https://linear.app/agent/replacement",
+                status: "pending",
+              },
+            },
+          },
+        })
+      )
+      .mockResolvedValueOnce(Response.json({ data: { commentCreate: { success: true } } }));
+    vi.stubGlobal("fetch", linearFetch);
+    const configured = env(kv);
+    configured.INTERNAL_CALLBACK_SECRET = "internal-secret";
+    configured.CONTROL_PLANE = { fetch: controlPlaneFetch } as unknown as Fetcher;
+
+    await expect(
+      activatePreviewAgent(
+        configured,
+        { ...payload(), action: "fix" },
+        {
+          id: "child-id",
+          identifier: "OPS-1003",
+          url: "https://linear.app/opsdna/issue/OPS-1003",
+        }
+      )
+    ).resolves.toEqual({
+      status: "started",
+      sessionUrl: "https://linear.app/agent/replacement",
+    });
+    expect(controlPlaneFetch.mock.calls.map(([url]) => url)).toEqual([
+      "https://internal/preview-feedback/channels/claim",
+      "https://internal/preview-feedback/channels/resolve-base",
+      "https://internal/sessions/stale-open-inspect-session",
+      "https://internal/preview-feedback/channels/reset-session",
       "https://internal/preview-feedback/channels/update",
     ]);
   });
