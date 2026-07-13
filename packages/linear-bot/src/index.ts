@@ -19,6 +19,7 @@ import { handleAgentSessionEvent } from "./webhook-handler";
 import { escapeHtml } from "./prompts";
 import { isDuplicateEvent } from "./kv-store";
 import { handlePreviewFeedbackIngest } from "./preview-feedback";
+import { handlePreviewFeedbackClose } from "./preview-feedback-close";
 
 const log = createLogger("handler");
 
@@ -77,6 +78,7 @@ app.get("/health", (c) => {
 });
 
 app.post("/preview-feedback/ingest", (c) => handlePreviewFeedbackIngest(c));
+app.post("/preview-feedback/close", (c) => handlePreviewFeedbackClose(c));
 
 // ─── OAuth Routes ────────────────────────────────────────────────────────────
 

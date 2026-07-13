@@ -249,4 +249,37 @@ export class PreviewFeedbackChannelStore {
     if ((result.meta.changes ?? 0) === 0) return null;
     return this.getByParentIssue(input.parentLinearIssueId);
   }
+
+  async close(input: {
+    channelKey: string;
+    repository: string;
+    deploymentKind: "feature_preview" | "staging";
+    previewId: string;
+    prNumber: number | null;
+    baseBranch: string;
+    now: number;
+  }): Promise<PreviewFeedbackChannel | null> {
+    const result = await this.db
+      .prepare(
+        `UPDATE preview_feedback_channels SET
+           status = 'closed', lease_owner = NULL, lease_expires_at = NULL,
+           updated_at = ?, expires_at = MIN(expires_at, ?)
+         WHERE channel_key = ? AND repository = ? AND deployment_kind = ?
+           AND preview_id = ? AND pr_number IS ? AND base_branch = ?
+           AND status != 'expired'`
+      )
+      .bind(
+        input.now,
+        input.now,
+        input.channelKey,
+        input.repository,
+        input.deploymentKind,
+        input.previewId,
+        input.prNumber,
+        input.baseBranch
+      )
+      .run();
+    if ((result.meta.changes ?? 0) === 0) return null;
+    return this.get(input.channelKey);
+  }
 }
