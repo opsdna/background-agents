@@ -79,6 +79,13 @@ export interface PreviewFeedbackIngestServices {
   ) => Promise<{ status: "started" | "queued"; sessionUrl: string }>;
 }
 
+export interface PreviewAgentServices {
+  sleep?: (milliseconds: number) => Promise<void>;
+  attachmentPollAttempts?: number;
+  attachmentPollIntervalMs?: number;
+  activationClaimRetries?: number;
+}
+
 export async function handlePreviewFeedbackIngest(
   c: Context<{ Bindings: Env }>,
   services: PreviewFeedbackIngestServices = {}
@@ -244,7 +251,18 @@ interface PreviewFeedbackChannelResponse {
 export async function activatePreviewAgent(
   env: Env,
   envelope: PreviewFeedbackEnvelope,
-  childIssue: CreatedLinearIssue
+  childIssue: CreatedLinearIssue,
+  services: PreviewAgentServices = {}
+): Promise<{ status: "started" | "queued"; sessionUrl: string }> {
+  return activatePreviewAgentAttempt(env, envelope, childIssue, services, 0);
+}
+
+async function activatePreviewAgentAttempt(
+  env: Env,
+  envelope: PreviewFeedbackEnvelope,
+  childIssue: CreatedLinearIssue,
+  services: PreviewAgentServices,
+  claimAttempt: number
 ): Promise<{ status: "started" | "queued"; sessionUrl: string }> {
   const organizationId = required(env.PREVIEW_FEEDBACK_ORGANIZATION_ID);
   const client = await getLinearClientOrThrow(env, organizationId);
@@ -268,6 +286,12 @@ export async function activatePreviewAgent(
     expiresAt: now + (envelope.deployment.kind === "staging" ? 24 : 7 * 24) * 60 * 60 * 1000,
   });
   if (!claim.claimed) {
+    if (claimAttempt < (services.activationClaimRetries ?? 4)) {
+      const attached = await waitForAgentAttachment(env, channelKey, claim.channel, services);
+      if (attached) {
+        return activatePreviewAgentAttempt(env, envelope, childIssue, services, claimAttempt + 1);
+      }
+    }
     throw new Error(
       claim.channel.linearAgentSessionId
         ? "Preview feedback agent session already exists"
@@ -346,6 +370,12 @@ export async function activatePreviewAgent(
       now,
       status: "provisioning",
     });
+    if (claimAttempt < (services.activationClaimRetries ?? 4)) {
+      const attached = await waitForAgentAttachment(env, channelKey, claim.channel, services);
+      if (attached) {
+        return activatePreviewAgentAttempt(env, envelope, childIssue, services, claimAttempt + 1);
+      }
+    }
     throw new Error("Preview feedback agent session reuse is not enabled");
   }
   try {
@@ -391,6 +421,31 @@ export async function activatePreviewAgent(
     }
     throw error;
   }
+}
+
+async function waitForAgentAttachment(
+  env: Env,
+  channelKey: string,
+  initial: PreviewFeedbackChannelResponse["channel"],
+  services: PreviewAgentServices
+): Promise<boolean> {
+  const attempts = services.attachmentPollAttempts ?? 20;
+  const intervalMs = services.attachmentPollIntervalMs ?? 250;
+  const sleep =
+    services.sleep ??
+    ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  if (initial.openInspectSessionId) {
+    await sleep(intervalMs);
+    return true;
+  }
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await sleep(intervalMs);
+    const current = await controlPlaneChannelRequest(env, "/preview-feedback/channels/get", {
+      channelKey,
+    });
+    if (current.channel.openInspectSessionId) return true;
+  }
+  return false;
 }
 
 async function commentOnChildBestEffort(
