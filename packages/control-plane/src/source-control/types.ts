@@ -149,6 +149,13 @@ export interface RepositoryAccessResult {
   defaultBranch: string;
 }
 
+export interface BranchHead {
+  /** Branch name as resolved by the provider. */
+  name: string;
+  /** Full commit SHA at the branch head. */
+  sha: string;
+}
+
 /**
  * A commit-ish resolved to the commit it names.
  */
@@ -404,11 +411,6 @@ export interface SourceControlProvider {
   listBranches(config: GetRepositoryConfig): Promise<{ name: string }[]>;
 
   /**
-   * Resolve one branch tip with app-level credentials. A confirmed 404 is
-   * absence; authentication, throttling, and transport failures throw.
-   */
-  getBranchHead(config: GetRepositoryConfig & { branch: string }): Promise<string | null>;
-
   /**
    * Resolve a branch, tag, or commit-ish to the commit it names.
    *
@@ -466,6 +468,14 @@ export interface SourceControlProvider {
    * @throws SourceControlProviderError
    */
   getPullRequest(config: GetPullRequestConfig): Promise<PullRequestSnapshot>;
+
+  /**
+   * Resolve a branch head with app-level credentials.
+   *
+   * Returns null when the repository or branch is not accessible. Callers use
+   * this to reject work derived from stale external metadata.
+   */
+  getBranchHead(config: GetRepositoryConfig & { branch: string }): Promise<BranchHead | null>;
 
   /**
    * Generate authentication for git push operations.

@@ -4,6 +4,8 @@ import {
 } from "../db/preview-feedback-channels";
 import { admit, dispatch } from "../routing/admit";
 import type { ControlPlaneHonoEnv } from "../routing/hono-env";
+import { createSourceControlProviderFromEnv } from "../source-control/provider-from-env";
+import type { Env } from "../types";
 import { Hono } from "hono";
 import { parseJsonBody } from "./body";
 import { error, json, serviceAuthorized, type RequestContext } from "./shared";
@@ -259,4 +261,52 @@ previewFeedbackChannelRoutes.post(
   "/preview-feedback/channels/attach-session",
   LINEAR_SERVICE,
   (c) => dispatch(c, (request, _env, _params, ctx) => attachSession(request, ctx))
+);
+async function resolveBase(request: Request, env: Env, ctx: RequestContext): Promise<Response> {
+  const body = await boundedBody<{ channelKey?: unknown; leaseOwner?: unknown; now?: unknown }>(
+    request
+  );
+  if (body instanceof Response) return body;
+  const channelKey = requiredString(body.channelKey, 1000);
+  const leaseOwner = requiredString(body.leaseOwner);
+  if (!channelKey || !leaseOwner || !safeInteger(body.now)) {
+    return error("Invalid preview feedback base resolution", 400);
+  }
+  const store = new PreviewFeedbackChannelStore(ctx.db);
+  const channel = await store.get(channelKey);
+  if (
+    !channel ||
+    channel.leaseOwner !== leaseOwner ||
+    channel.leaseExpiresAt === null ||
+    channel.leaseExpiresAt <= body.now ||
+    channel.status === "closed" ||
+    channel.status === "expired"
+  ) {
+    return error("Preview feedback channel lease lost", 409);
+  }
+  const separator = channel.repository.indexOf("/");
+  if (separator < 1 || separator === channel.repository.length - 1) {
+    return error("Preview feedback repository is invalid", 409);
+  }
+  const owner = channel.repository.slice(0, separator);
+  const name = channel.repository.slice(separator + 1);
+  const provider = createSourceControlProviderFromEnv(env);
+  const access = await provider.checkRepositoryAccess({ owner, name });
+  if (!access) return error("Preview feedback repository is unavailable", 409);
+  const head = await provider.getBranchHead({ owner, name, branch: channel.baseBranch });
+  if (!head || !validSha(head.sha)) {
+    return error("Preview feedback branch is unavailable", 409);
+  }
+  const updated = await store.setBaseSha({
+    channelKey,
+    leaseOwner,
+    baseSha: head.sha.toLowerCase(),
+    now: body.now,
+  });
+  return updated ? json({ channel: updated }) : error("Preview feedback channel lease lost", 409);
+}
+previewFeedbackChannelRoutes.post(
+  "/preview-feedback/channels/resolve-base",
+  LINEAR_SERVICE,
+  (c) => dispatch(c, (request, env, _params, ctx) => resolveBase(request, env, ctx))
 );
