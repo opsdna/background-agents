@@ -1161,6 +1161,7 @@ Secrets for credentials:
 | `LINEAR_WEBHOOK_SECRET`            | Linear webhook signing secret (required if Linear enabled)                                  |
 | `LINEAR_API_KEY`                   | Optional Linear API key used as a comment-posting fallback                                  |
 | `ANTHROPIC_API_KEY`                | Optional; reaches Modal and OpenComputer sandboxes; required by an Anthropic classifier     |
+| `PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET` | Shared 32+ byte secret for verified OpsDNA preview-feedback dispatches                      |
 | `CLASSIFICATION_OPENAI_API_KEY`    | Classifier OpenAI key (required when `classification_model` is an OpenAI id)                |
 | `OPENAI_API_KEY`                   | Optional OpenAI API key used when a session selects API-key authentication                  |
 | `XAI_API_KEY`                      | Optional xAI API key used when a session selects API-key authentication                     |
