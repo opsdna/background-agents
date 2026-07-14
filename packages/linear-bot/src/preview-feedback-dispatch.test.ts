@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getPreviewFeedbackDispatch,
   previewFeedbackProfileInstructions,
+  stripPreviewFeedbackMarkers,
 } from "./preview-feedback-dispatch";
 import { createFakeKV, makeLinearBotEnv } from "./test-helpers";
 
@@ -56,6 +57,18 @@ describe("preview feedback dispatch", () => {
     });
     expect(implement).toContain("open a draft pull request");
     expect(implement).toContain("must target codex/preview-feedback");
+  });
+
+  it("removes preview feedback and dispatch marker comments", () => {
+    const text = [
+      "Before",
+      "<!-- opsdna-preview-feedback:v1 feedbackId=feedback-1 -->",
+      "Middle",
+      "<!-- opsdna-preview-dispatch:v1 payload=payload signature=signature -->",
+      "After",
+    ].join("\n");
+
+    expect(stripPreviewFeedbackMarkers(text)).toBe("Before\n\nMiddle\n\nAfter");
   });
 });
 
