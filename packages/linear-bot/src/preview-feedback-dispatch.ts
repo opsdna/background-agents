@@ -9,6 +9,13 @@ export interface PreviewFeedbackDispatch {
   baseBranch: string;
 }
 
+const PREVIEW_MARKER_COMMENT_RE = /<!--\s*opsdna-preview-(?:feedback|dispatch):v1\b[^>]*-->/gu;
+
+/** Remove internal preview metadata before issue text is sent to the agent. */
+export function stripPreviewFeedbackMarkers(text: string): string {
+  return text.replace(PREVIEW_MARKER_COMMENT_RE, "");
+}
+
 export async function getPreviewFeedbackDispatch(
   env: Env,
   issueId: string,

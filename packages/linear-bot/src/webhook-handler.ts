@@ -6,7 +6,6 @@
 import type { LinearCallbackContext } from "@open-inspect/shared/types/session-api";
 import { MAX_WEB_PROMPT_CHARS } from "@open-inspect/shared/types/prompts";
 import { checkHarnessCompatibility, getHarnessLabel } from "@open-inspect/shared/harnesses";
-import { z } from "zod";
 import type { Env, AgentSessionWebhook, AgentSessionWebhookIssue } from "./types";
 import {
   getLinearClientOrThrow,
@@ -37,20 +36,10 @@ import {
   resolveLinearTeamBinding,
 } from "./launch-admission";
 import { buildFollowUpPrompt, buildPrompt, buildPromptContextPrompt } from "./prompts";
-import { previewFeedbackProfileInstructions } from "./preview-feedback-dispatch";
+import { previewFeedbackProfileInstructions, stripPreviewFeedbackMarkers } from "./preview-feedback-dispatch";
 
 const log = createLogger("handler");
 
-const sessionEventsSummaryResponseSchema = z.object({
-  events: z.array(
-    z.object({
-      type: z.literal("token"),
-      data: z.object({
-        content: z.string(),
-      }),
-    })
-  ),
-});
 
 // ─── Sub-handlers ────────────────────────────────────────────────────────────
 
@@ -331,39 +320,10 @@ async function handleFollowUp(
     true
   );
 
-  let sessionContextSummary = "";
-  try {
-    const eventsUrl = new URL(
-      `https://internal/sessions/${existingSession.sessionId}/events?type=token&limit=20`
-    );
-    eventsUrl.searchParams.set("channel", `linear:${issue.team.id}`);
-    const eventsRes = await signedControlPlaneFetch(env, {
-      method: "GET",
-      url: eventsUrl.toString(),
-      actor: `linear:${followUp.actorUserId}`,
-      traceId,
-    });
-    if (eventsRes.ok) {
-      const eventsData = sessionEventsSummaryResponseSchema.safeParse(await eventsRes.json());
-      const latestContent = eventsData.success
-        ? eventsData.data.events[0]?.data.content
-        : undefined;
-      if (latestContent) {
-        sessionContextSummary = latestContent.slice(0, 500);
-      }
-    }
-  } catch {
-    /* best effort */
-  }
-
   const promptUrl = `https://internal/sessions/${existingSession.sessionId}/prompt`;
   const promptBody = JSON.stringify({
     content: buildFollowUpPrompt({
-      issueIdentifier: issue.identifier,
       followUpContent: followUp.content,
-      followUpSource: followUp.source,
-      followUpAuthor: "linear",
-      sessionContextSummary,
     }),
     source: "linear",
     callbackContext,
@@ -512,13 +472,26 @@ async function handleNewSession(
     return;
   }
 
-  // Prefer Linear's promptContext (includes issue, comments, guidance)
-  let prompt = webhook.promptContext
-    ? buildPromptContextPrompt(webhook.promptContext)
-    : buildPrompt(issue, issueDetails, instructionComment, clarificationReply);
+  const promptContext = webhook.promptContext
+    ? stripPreviewFeedbackMarkers(webhook.promptContext)
+    : null;
+  const promptIssue = issue.description
+    ? { ...issue, description: stripPreviewFeedbackMarkers(issue.description) }
+    : issue;
+  let prompt = promptContext
+    ? buildPromptContextPrompt(promptContext, instructionComment?.body)
+    : buildPrompt(promptIssue, issueDetails, instructionComment, clarificationReply);
 
   if (integrationConfig.issueSessionInstructions) {
     prompt += `\n\n## Additional Instructions\n\n${integrationConfig.issueSessionInstructions}`;
+  }
+
+  if (previewFeedbackProfile && target.kind === "repository" && baseBranch) {
+    prompt += `\n\n${previewFeedbackProfileInstructions({
+      profile: previewFeedbackProfile,
+      repository: target.fullName,
+      baseBranch,
+    })}`;
   }
 
   if (prompt.length > MAX_WEB_PROMPT_CHARS) {
@@ -655,13 +628,6 @@ async function handleNewSession(
 
   // ─── Send prompt ──────────────────────────────────────────────────────
 
-  if (previewFeedbackProfile && target.kind === "repository" && baseBranch) {
-    prompt += `\n\n${previewFeedbackProfileInstructions({
-      profile: previewFeedbackProfile,
-      repository: target.fullName,
-      baseBranch,
-    })}`;
-  }
 
   const promptUrl = `https://internal/sessions/${session.sessionId}/prompt`;
   const promptBody = JSON.stringify({
