@@ -279,6 +279,7 @@ LINEAR_CLIENT_ID
 LINEAR_CLIENT_SECRET
 LINEAR_WEBHOOK_SECRET
 LINEAR_API_KEY # Optional; fallback comment posting
+PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET # Same 32+ byte value provisioned in the OpsDNA API
 
 # API Keys
 ANTHROPIC_API_KEY # Optional; injected into Modal sandboxes and used by an Anthropic classifier when CLASSIFICATION_ANTHROPIC_API_KEY is unset

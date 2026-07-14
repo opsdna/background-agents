@@ -1401,6 +1401,7 @@ Secrets for credentials:
 | `LINEAR_API_KEY`                   | Optional Linear API key used as a comment-posting fallback                                  |
 | `ANTHROPIC_API_KEY`                | Optional; reaches Modal sandboxes; classifier fallback                                      |
 | `CLASSIFICATION_ANTHROPIC_API_KEY` | Optional classifier-only Anthropic key; never reaches sandboxes                             |
+| `PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET` | Shared 32+ byte secret for verified OpsDNA preview-feedback dispatches                      |
 | `CLASSIFICATION_OPENAI_API_KEY`    | Classifier OpenAI key (required when `classification_model` is an OpenAI id)                |
 | `CLASSIFICATION_BEDROCK_API_KEY`   | Classifier Amazon Bedrock API key (required when `classification_model` is a Bedrock id)    |
 | `OPENAI_API_KEY`                   | Optional OpenAI API key used when a session selects API-key authentication                  |
