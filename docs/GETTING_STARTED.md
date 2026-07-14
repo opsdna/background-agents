@@ -965,6 +965,7 @@ Go to your fork's Settings → Secrets and variables → Actions, and add:
 | `LINEAR_CLIENT_ID`               | Linear OAuth application client ID (required if Linear enabled)                             |
 | `LINEAR_CLIENT_SECRET`           | Linear OAuth application client secret (required if Linear enabled)                         |
 | `LINEAR_WEBHOOK_SECRET`          | Linear webhook signing secret (required if Linear enabled)                                  |
+| `PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET` | Shared 32+ byte secret for verified OpsDNA preview-feedback dispatches                      |
 | `ANTHROPIC_API_KEY`              | Anthropic API key                                                                           |
 | `DEEPSEEK_API_KEY`               | DeepSeek API key (optional, required only for DeepSeek models)                              |
 | `TOKEN_ENCRYPTION_KEY`           | Generated encryption key (OAuth tokens)                                                     |
