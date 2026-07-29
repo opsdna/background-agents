@@ -982,6 +982,7 @@ Go to your fork's Settings → Secrets and variables → Actions, and add:
 | `GH_BOT_USERNAME`                | GitHub App bot username, e.g., `my-app[bot]` (required if GitHub bot enabled)               |
 | `APP_NAME`                       | Optional display name for whitelabeling (default: `Open-Inspect`)                           |
 | `APP_ICON_URL`                   | Optional URL to a custom logo/favicon (default: built-in icon)                              |
+| `APP_SHORT_NAME`                  | Optional short label for sidebar header (default: `Inspect`)                                |
 
 When enabling or upgrading the Linear bot, also enable **Client credentials tokens** on the OAuth
 application in **Linear Settings → API → Applications**. This provider-side setting is not managed
