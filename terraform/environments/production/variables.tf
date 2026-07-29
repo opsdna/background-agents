@@ -375,6 +375,15 @@ variable "provider_accounts_encryption_key" {
   }
 }
 
+# Kept as a no-op compatibility input so older ignored terraform.tfvars files
+# do not fail validation during the Better Auth migration.
+variable "internal_callback_secret" {
+  description = "Deprecated and unused; retained for compatibility with older terraform.tfvars files"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "modal_api_secret" {
   description = "Shared secret for authenticating control plane to Modal API calls (generate with: openssl rand -hex 32)"
   type        = string
