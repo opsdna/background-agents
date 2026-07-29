@@ -1069,6 +1069,7 @@ Go to your fork's Settings → Secrets and variables → Actions, and add:
 | `GH_BOT_USERNAME`                  | GitHub App bot username, e.g., `my-app[bot]` (required if GitHub bot enabled)               |
 | `APP_NAME`                         | Optional display name for whitelabeling (default: `Open-Inspect`)                           |
 | `APP_ICON_URL`                     | Optional URL to a custom logo/favicon (default: built-in icon)                              |
+| `APP_SHORT_NAME`                   | Optional short label for sidebar header (default: `Inspect`)                                |
 
 `CLASSIFICATION_MODEL` is an optional Actions **variable**, not a secret — add it under Settings →
 Secrets and variables → Actions → _Variables_ to point the Slack/Linear classifiers at a different
