@@ -34,7 +34,10 @@ export interface AuthenticatedUserSession {
 export interface SessionReader {
   getSession(input: {
     readonly headers: Headers;
-    readonly query: { readonly disableRefresh: true };
+    readonly query: {
+      readonly disableRefresh: true;
+      readonly disableCookieCache: true;
+    };
   }): Promise<unknown>;
 }
 
@@ -52,7 +55,9 @@ export async function authenticateSession(
   // Resource authentication is a read-only hot path, not a session-lifecycle endpoint.
   const candidate = await sessionReader.getSession({
     headers,
-    query: { disableRefresh: true },
+    // Ignore stale cached session payloads from older deployments. The signed
+    // token and D1 session remain the authoritative authentication boundary.
+    query: { disableRefresh: true, disableCookieCache: true },
   });
   if (candidate === null) return null;
 

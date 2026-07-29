@@ -37,6 +37,7 @@ export async function forwardBrowserAuthRequest(
   if (request.method === "GET" && url.pathname === "/api/auth/get-session") {
     return auth.api.getSession({
       headers: request.headers,
+      query: { disableCookieCache: true },
       asResponse: true,
     });
   }
