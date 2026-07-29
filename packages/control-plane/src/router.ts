@@ -374,9 +374,6 @@ const routes: Route[] = [
   // Analytics
   ...analyticsRoutes,
 
-  // Provider identities
-  ...providerIdentityRoutes,
-
   // Webhooks (public routes — auth handled per-route)
   ...webhookRoutes,
 ];

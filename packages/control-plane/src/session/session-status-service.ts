@@ -28,7 +28,12 @@ export class SessionStatusService {
     private readonly artifactRepository: ArtifactRepository,
     private readonly messenger: SessionMessenger,
     private readonly sessionIndex: SessionIndexStore | null,
-    private readonly parentSessions: DurableObjectNamespace | null
+    private readonly parentSessions: DurableObjectNamespace | null,
+    private readonly onStatusChange?: (
+      sessionId: string,
+      status: SessionStatus,
+      updatedAt: number
+    ) => void
   ) {}
 
   /**
@@ -90,6 +95,7 @@ export class SessionStatusService {
     await this.syncSessionIndexStatusAndAdmission(publicSessionId, status, updatedAt).catch(
       (error) => this.logSessionIndexStatusSyncError(publicSessionId, status, updatedAt, error)
     );
+    this.onStatusChange?.(publicSessionId, status, updatedAt);
 
     this.messenger.broadcast({ type: "session_status", status });
 
