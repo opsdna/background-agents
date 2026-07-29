@@ -4,7 +4,6 @@
  */
 
 import { createSessionResponseSchema } from "@open-inspect/shared";
-import { z } from "zod";
 import type {
   Env,
   LinearCallbackContext,
@@ -98,6 +97,7 @@ async function createSession(
     reasoningEffort: params.reasoningEffort,
     actorDisplayName: params.actorDisplayName,
     actorEmail: params.actorEmail,
+    branch: params.branch,
   });
   const response = await signedControlPlaneFetch(env, {
     method: "POST",

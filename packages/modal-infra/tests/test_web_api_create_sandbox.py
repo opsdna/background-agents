@@ -432,6 +432,6 @@ def test_session_config_helper_ignores_null_wire_values():
         repo_name=None,
     )
 
-    assert config.provider == "anthropic"
-    assert config.model == "claude-sonnet-4-6"
+    assert config.provider == "openai"
+    assert config.model == "gpt-5.5"
     assert config.branch is None

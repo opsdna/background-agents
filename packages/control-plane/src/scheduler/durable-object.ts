@@ -597,7 +597,7 @@ export class SchedulerDO extends DurableObject<Env> {
 
   private async resourceCleanupSweep(now: number): Promise<void> {
     const cleanup = new SessionResourceCleanupService(
-      this.env.DB,
+      this.db,
       this.env.REPO_SECRETS_ENCRYPTION_KEY,
       this.log
     );

@@ -73,7 +73,7 @@ describe("resolveModelPreference", () => {
       resolveModelPreference({ model: "anthropic/claude-opus-4-8", reasoningEffort: "high" }, [])
     ).toEqual({
       model: DEFAULT_MODEL,
-      reasoningEffort: getDefaultReasoningEffort(DEFAULT_MODEL),
+      reasoningEffort: "high",
     });
   });
 

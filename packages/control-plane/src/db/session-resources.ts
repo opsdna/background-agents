@@ -1,3 +1,5 @@
+import type { SqlDatabase } from "./sql-database";
+
 export type SessionResourceType = "neon_branch";
 export type SessionResourceLifecycleOwner = "open_inspect_session" | "github_pr";
 export type SessionResourceStatus =
@@ -45,7 +47,7 @@ export interface NeonBranchPullRequestOwnership {
 }
 
 export class SessionResourceStore {
-  constructor(private readonly db: D1Database) {}
+  constructor(private readonly db: SqlDatabase) {}
 
   async upsertNeonBranch(input: UpsertNeonBranchResource): Promise<void> {
     const now = input.now ?? Date.now();

@@ -13,7 +13,6 @@ import {
   DEFAULT_MODEL,
   clientMessageSchema,
   generateBranchName,
-  isValidReasoningEffort,
   resolveAppName,
   sandboxEventSchema,
   timingSafeEqual,
@@ -25,7 +24,6 @@ import { resolveSandboxBackendName } from "../sandbox/provider-name";
 import { createSandboxProviderFromEnv } from "../sandbox/provider-factory";
 import { createImageBuildLookup } from "../image-builds/lookup";
 import { resolveImageBuildProvider } from "../image-builds/provider-policy";
-import { resolveRepoImageProvider } from "../repo-images/provider-policy";
 import {
   hasNeonProvisioningConfig,
   provisionNeonDatabaseEnv,
@@ -47,6 +45,7 @@ import {
 } from "../sandbox/lifecycle/manager";
 import { McpServerStore } from "../db/mcp-servers";
 import { SessionResourceStore } from "../db/session-resources";
+import { SessionResourceCleanupService } from "./session-resource-cleanup";
 import { IntegrationSettingsStore, resolveSlackSettings } from "../db/integration-settings";
 import { SessionIndexStore } from "../db/session-index";
 import { DEFAULT_EXECUTION_TIMEOUT_MS } from "../sandbox/lifecycle/decisions";
@@ -64,6 +63,7 @@ import type {
   SessionRepositoryState,
   SessionState,
   SandboxStatus,
+  SessionStatus,
 } from "../types";
 import type { SqlDatabase } from "../db/sql-database";
 import type { SessionRow, ArtifactRow, SandboxRow } from "./types";
@@ -548,7 +548,9 @@ export class SessionDO extends DurableObject<Env> {
             appName: resolveAppName(this.env),
             sessionPullRequests: this.db ? new SessionPullRequestStore(this.db) : undefined,
             markNeonBranchOwnedByPullRequest: (data) =>
-              new SessionResourceStore(this.env.DB).markNeonBranchOwnedByPullRequest(data),
+              this.db
+                ? new SessionResourceStore(this.db).markNeonBranchOwnedByPullRequest(data)
+                : Promise.resolve(0),
           });
 
           return pullRequestService.createPullRequest(input);
@@ -657,11 +659,59 @@ export class SessionDO extends DurableObject<Env> {
         this.repository,
         this.messenger,
         this.db ? new SessionIndexStore(this.db) : null,
-        this.env.SESSION ?? null
+        this.env.SESSION ?? null,
+        (sessionId, status, updatedAt) =>
+          this.scheduleSessionResourceStatusUpdate(sessionId, status, updatedAt)
       );
     }
 
     return this._statusService;
+  }
+
+  private scheduleSessionResourceStatusUpdate(
+    sessionId: string,
+    status: SessionStatus,
+    updatedAt: number
+  ): void {
+    if (!this.db) return;
+
+    const cleanup = new SessionResourceCleanupService(
+      this.db,
+      this.env.REPO_SECRETS_ENCRYPTION_KEY,
+      this.log
+    );
+
+    this.ctx.waitUntil(
+      cleanup
+        .handleSessionStatus(sessionId, status, updatedAt)
+        .then(async (result) => {
+          if (result.action === "marked" && result.deleteAfter !== undefined) {
+            this.log.info("Session resources marked for cleanup", {
+              session_id: sessionId,
+              status,
+              resource_count: result.count,
+              delete_after: result.deleteAfter,
+            });
+          } else if (result.action === "cleared" && result.count > 0) {
+            this.log.info("Session resource cleanup cleared", {
+              session_id: sessionId,
+              status,
+              resource_count: result.count,
+            });
+          }
+
+          if (status === "cancelled" && result.count > 0) {
+            await cleanup.processDue(Date.now(), Math.max(result.count, 10));
+          }
+        })
+        .catch((error) => {
+          this.log.error("Session resource status update failed", {
+            session_id: sessionId,
+            status,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+    );
   }
 
   /**
@@ -1838,17 +1888,19 @@ export class SessionDO extends DurableObject<Env> {
         const provisioned = await provisionNeonDatabaseEnv(merge.merged, session);
         if (provisioned) {
           const publicSessionId = this.getPublicSessionId(session);
-          await new SessionResourceStore(this.env.DB).upsertNeonBranch({
-            sessionId: publicSessionId,
-            repoOwner: session.repo_owner ?? "environment",
-            repoName: session.repo_name ?? "session",
-            branchId: provisioned.branchId,
-            branchName: provisioned.branchName,
-            metadata: {
-              projectId: provisioned.projectId,
-              gitBranch: generateBranchName(session.session_name || session.id),
-            },
-          });
+          if (this.db) {
+            await new SessionResourceStore(this.db).upsertNeonBranch({
+              sessionId: publicSessionId,
+              repoOwner: session.repo_owner ?? "environment",
+              repoName: session.repo_name ?? "session",
+              branchId: provisioned.branchId,
+              branchName: provisioned.branchName,
+              metadata: {
+                projectId: provisioned.projectId,
+                gitBranch: generateBranchName(session.session_name || session.id),
+              },
+            });
+          }
           sandboxEnv = { ...sandboxEnv, ...provisioned.env };
           this.log.info("Provisioned Neon branch for sandbox", {
             session_id: session.id,

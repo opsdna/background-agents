@@ -36,7 +36,13 @@ function createSession(overrides: Partial<SessionRow> = {}): SessionRow {
   } as SessionRow;
 }
 
-function harness(options: { session?: SessionRow | null; sessionIndex?: null } = {}) {
+function harness(
+  options: {
+    session?: SessionRow | null;
+    sessionIndex?: null;
+    onStatusChange?: (sessionId: string, status: SessionRow["status"], updatedAt: number) => void;
+  } = {}
+) {
   const session = options.session === undefined ? createSession() : options.session;
 
   const repository = {
@@ -85,7 +91,8 @@ function harness(options: { session?: SessionRow | null; sessionIndex?: null } =
     repository as unknown as SessionRepository,
     messenger,
     sessionIndex as unknown as SessionIndexStore | null,
-    parentSessions as unknown as DurableObjectNamespace
+    parentSessions as unknown as DurableObjectNamespace,
+    options.onStatusChange
   );
 
   return {
@@ -173,6 +180,31 @@ describe("SessionStatusService.transition", () => {
     await h.service.transition("active");
 
     expect(h.sessionIndex!.updateMetrics).not.toHaveBeenCalled();
+  });
+
+  it("notifies the resource lifecycle after a real transition", async () => {
+    const onStatusChange = vi.fn();
+    const h = harness({
+      session: createSession({ status: "active" }),
+      onStatusChange,
+    });
+
+    await h.service.transition("completed");
+
+    expect(onStatusChange).toHaveBeenCalledWith(
+      "public-session-1",
+      "completed",
+      expect.any(Number)
+    );
+  });
+
+  it("does not notify the resource lifecycle for a same-status refresh", async () => {
+    const onStatusChange = vi.fn();
+    const h = harness({ onStatusChange });
+
+    await h.service.transition("active");
+
+    expect(onStatusChange).not.toHaveBeenCalled();
   });
 
   it("logs index sync failures without throwing", async () => {
