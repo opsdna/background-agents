@@ -458,8 +458,8 @@ export interface SourceControlProvider {
    * @param config - PR identifier; include repositoryExternalId when known
    *   so a 404 triggers a resolve-by-id + single retry (rename tolerance)
    * @returns Current PR snapshot
-  * @throws SourceControlProviderError
-  */
+   * @throws SourceControlProviderError
+   */
   getPullRequest(config: GetPullRequestConfig): Promise<PullRequestSnapshot>;
   /**
    * Generate authentication for git push operations.
