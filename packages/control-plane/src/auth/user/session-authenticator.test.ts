@@ -21,7 +21,7 @@ describe("authenticateSession", () => {
     });
     expect(sessionReader.getSession).toHaveBeenCalledWith({
       headers,
-      query: { disableRefresh: true },
+      query: { disableRefresh: true, disableCookieCache: true },
     });
   });
 
