@@ -1424,6 +1424,7 @@ Secrets for credentials:
 | `GH_BOT_USERNAME`                  | GitHub App bot username, e.g., `my-app[bot]` (required if GitHub bot enabled)               |
 | `APP_NAME`                         | Optional display name for whitelabeling (default: `Open-Inspect`)                           |
 | `APP_ICON_URL`                     | Optional URL to a custom logo/favicon (default: built-in icon)                              |
+| `APP_SHORT_NAME`                   | Optional short label for sidebar header (default: `Inspect`)                                |
 
 An empty allowlist only means that list is not used; it does not admit everyone. Terraform fails the
 plan unless at least one of `ALLOWED_USERS`, `ALLOWED_EMAIL_DOMAINS`, `ALLOWED_EMAILS`, or
