@@ -1,5 +1,6 @@
 import type { SessionStatus } from "../types";
 import type { Logger } from "../logger";
+import type { SqlDatabase } from "../db/sql-database";
 import { GlobalSecretsStore } from "../db/global-secrets";
 import {
   SessionResourceStore,
@@ -39,7 +40,7 @@ export interface SessionResourceCleanupResult {
 
 export class SessionResourceCleanupService {
   constructor(
-    private readonly db: D1Database,
+    private readonly db: SqlDatabase,
     private readonly encryptionKey: string | undefined,
     private readonly log?: Logger,
     private readonly fetchFn?: typeof fetch

@@ -26,6 +26,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/dist/**",
       "**/.next/**",
+      "**/.open-next/**",
       "**/build/**",
       "**/.wrangler/**",
       "**/coverage/**",

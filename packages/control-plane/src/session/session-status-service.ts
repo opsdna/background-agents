@@ -36,7 +36,12 @@ export class SessionStatusService {
     private readonly sessionIndex: SessionIndexProjections,
     private readonly statusProjection: Pick<SessionStatusProjectionStore, "project">,
     /** Reaches the parent session's runtime for the child rollup. */
-    private readonly sessions: SessionRuntimeClient
+    private readonly sessions: SessionRuntimeClient,
+    private readonly onStatusChange?: (
+      sessionId: string,
+      status: SessionStatus,
+      updatedAt: number
+    ) => void
   ) {}
 
   /**
@@ -183,6 +188,7 @@ export class SessionStatusService {
     ).catch((error) =>
       this.logSessionIndexStatusSyncError(publicSessionId, status, updatedAt, error)
     );
+    this.onStatusChange?.(publicSessionId, status, updatedAt);
 
     this.messenger.broadcast({ type: "session_status", status });
 
