@@ -19,7 +19,11 @@ describe("preview feedback target resolution", () => {
     await expect(
       resolveSessionTarget({
         env,
-        client: { accessToken: "linear-token" },
+        client: {
+          accessToken: "linear-token",
+          organizationId: "org-id",
+          renewAccessToken: async () => "linear-token",
+        },
         agentSessionId: "agent-session-id",
         issue: {
           id: "issue-id",

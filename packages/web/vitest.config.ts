@@ -10,7 +10,12 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    setupFiles: ["./src/test/setup.ts"],
+    environmentOptions: {
+      jsdom: {
+        url: "http://localhost",
+      },
+    },
+    setupFiles: ["./src/test/setup.ts", "./src/test-setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     coverage: {
       provider: "v8",
