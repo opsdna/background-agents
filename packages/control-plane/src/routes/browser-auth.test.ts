@@ -68,6 +68,7 @@ describe("forwardBrowserAuthRequest", () => {
     expect(response.status).toBe(200);
     expect(getSession).toHaveBeenCalledWith({
       headers: request.headers,
+      query: { disableCookieCache: true },
       asResponse: true,
     });
     expect(handler).not.toHaveBeenCalled();
