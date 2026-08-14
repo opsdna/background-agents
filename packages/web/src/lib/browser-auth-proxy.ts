@@ -3,6 +3,7 @@ import {
   isBrowserAuthProxyRoute,
 } from "@open-inspect/shared/browser-auth-routes";
 import { dispatchWebServiceRequest } from "./control-plane-service";
+import { stripBrowserSessionCacheCookies } from "./browser-session-cookie";
 
 const REQUEST_HEADERS = [
   "Accept",
@@ -43,7 +44,8 @@ function copyRequestHeaders(source: Headers, clientIp?: string | null): Headers 
   const headers = new Headers();
   for (const name of REQUEST_HEADERS) {
     const value = source.get(name);
-    if (value !== null) headers.set(name, value);
+    const safeValue = name === "Cookie" ? stripBrowserSessionCacheCookies(value) : value;
+    if (safeValue !== null) headers.set(name, safeValue);
   }
   if (clientIp != null) {
     headers.set(BROWSER_AUTH_CLIENT_IP_HEADER, clientIp);
