@@ -376,12 +376,10 @@ export interface SourceControlProvider {
    */
   getPullRequest(config: GetPullRequestConfig): Promise<PullRequestSnapshot>;
   /**
-   * Resolve a branch head with app-level credentials.
-   *
-   * Returns null when the repository or branch is not accessible. Callers use
-   * this to reject work derived from stale external metadata.
+   * Resolve one branch tip with app-level credentials. A confirmed 404 is
+   * absence; authentication, throttling, and transport failures throw.
    */
-  getBranchHead(config: GetRepositoryConfig & { branch: string }): Promise<BranchHead | null>;
+  getBranchHead(config: GetRepositoryConfig & { branch: string }): Promise<string | null>;
 
   /**
    * Generate authentication for git push operations.

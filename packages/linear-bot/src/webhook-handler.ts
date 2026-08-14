@@ -582,8 +582,8 @@ async function handleNewSession(
 
   // Keep the original description above for signed target resolution. Only
   // remove internal preview metadata from the copy used as model context.
-  const promptContext = webhook.agentSession.promptContext
-    ? stripPreviewFeedbackMarkers(webhook.agentSession.promptContext)
+  const promptContext = webhook.promptContext
+    ? stripPreviewFeedbackMarkers(webhook.promptContext)
     : null;
   const promptIssue = issue.description
     ? { ...issue, description: stripPreviewFeedbackMarkers(issue.description) }
@@ -763,11 +763,8 @@ export function buildPrompt(
       "",
       "---",
       "**Repository clarification:**",
-      buildUntrustedUserContentBlock({
-        source: "linear_repository_clarification",
-        author: "unknown",
-        content: clarificationReply.body,
-      })
+      LINEAR_CONTEXT_BOUNDARY,
+      clarificationReply.body
     );
   }
 

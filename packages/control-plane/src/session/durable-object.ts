@@ -17,7 +17,7 @@ import {
   type SessionSnapshotState,
 } from "@open-inspect/shared/types/server-messages";
 import { sandboxEventSchema, type SandboxEvent } from "@open-inspect/shared/types/sandbox-events";
-import type { SandboxStatus } from "@open-inspect/shared/types/sessions";
+import type { SandboxStatus, SessionStatus } from "@open-inspect/shared/types/sessions";
 import type { SessionAttachmentReference } from "@open-inspect/shared/types/session-attachments";
 import type { ScmSettings } from "@open-inspect/shared/types/integrations";
 import { resolveAppName } from "@open-inspect/shared/app-name";
