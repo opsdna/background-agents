@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { serializeBrowserSessionCookies } from "./browser-session-cookie";
+import {
+  serializeBrowserSessionCookies,
+  stripBrowserSessionCacheCookies,
+} from "./browser-session-cookie";
 
 describe("serializeBrowserSessionCookies", () => {
   it("forwards only the opaque Better Auth session cookie", () => {
@@ -51,5 +54,21 @@ describe("serializeBrowserSessionCookies", () => {
         { name: "__Secure-openinspect.session_token", value: "valid; injected=value" },
       ])
     ).toThrow("Invalid browser session cookie value");
+  });
+
+  it("strips Better Auth session cache cookies but preserves session and OAuth cookies", () => {
+    expect(
+      stripBrowserSessionCacheCookies(
+        "__Secure-openinspect.session_token=session; __Secure-openinspect.session_data=stale; __Secure-openinspect.state=oauth-state"
+      )
+    ).toBe("__Secure-openinspect.session_token=session; __Secure-openinspect.state=oauth-state");
+  });
+
+  it("strips chunked session cache cookies", () => {
+    expect(
+      stripBrowserSessionCacheCookies(
+        "openinspect.session_data.0=stale-a; openinspect.session_data.1=stale-b"
+      )
+    ).toBeNull();
   });
 });
