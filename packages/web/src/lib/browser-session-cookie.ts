@@ -1,5 +1,7 @@
 const BROWSER_SESSION_COOKIE_PATTERN =
   /^(?:__Secure-openinspect|openinspect)\.session_token(?:\.[0-9]+)?$/;
+const BROWSER_SESSION_CACHE_COOKIE_PATTERN =
+  /^(?:__Secure-openinspect|openinspect)\.session_data(?:\.[0-9]+)?$/;
 
 export interface BrowserCookie {
   readonly name: string;
@@ -38,4 +40,25 @@ export function serializeBrowserSessionCookies(cookies: readonly BrowserCookie[]
   }
 
   return sessionCookies.map(({ name, value }) => `${name}=${value}`).join("; ");
+}
+
+/**
+ * Remove Better Auth's derived session cache before proxying browser-auth
+ * requests. The signed session token and OAuth transaction cookies remain
+ * valid inputs; the cached payload is disposable and can outlive deployments.
+ */
+export function stripBrowserSessionCacheCookies(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null;
+
+  const cookies = cookieHeader
+    .split(";")
+    .map((cookie) => cookie.trim())
+    .filter(Boolean)
+    .filter((cookie) => {
+      const separator = cookie.indexOf("=");
+      if (separator <= 0) return true;
+      return !BROWSER_SESSION_CACHE_COOKIE_PATTERN.test(cookie.slice(0, separator).trim());
+    });
+
+  return cookies.length > 0 ? cookies.join("; ") : null;
 }
