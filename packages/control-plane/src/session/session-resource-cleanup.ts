@@ -1,4 +1,4 @@
-import type { SessionStatus } from "../types";
+import type { SessionStatus } from "@open-inspect/shared/types/sessions";
 import type { Logger } from "../logger";
 import type { SqlDatabase } from "../db/sql-database";
 import { GlobalSecretsStore } from "../db/global-secrets";
