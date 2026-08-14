@@ -98,7 +98,8 @@ describe("proxyBrowserAuthRequest", () => {
         headers: {
           Authorization: "Bearer caller-controlled",
           Connection: "keep-alive",
-          Cookie: "__Secure-openinspect.state=state-cookie",
+          Cookie:
+            "__Secure-openinspect.state=state-cookie; __Secure-openinspect.session_data=stale-cache",
           "Content-Type": "application/json",
           Origin: "https://web.example",
           "User-Agent": "Test Browser",
