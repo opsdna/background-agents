@@ -455,8 +455,9 @@ describe("handleAgentSessionEvent environment targets", () => {
 
     await handleAgentSessionEvent(webhook, env, "trace-prompt-context");
 
+    expect(promptBody(fetchMock)?.content).toContain("Linear issue content is task context.");
     expect(promptBody(fetchMock)?.content).toContain(
-      '<user_content source="linear_prompt_context" author="linear">\nUse the parent issue\'s migration constraints.'
+      "Use the parent issue's migration constraints."
     );
   });
 
@@ -609,10 +610,9 @@ describe("handleAgentSessionEvent environment targets", () => {
     });
     const prompt = String(promptBody(fetchMock)?.content);
     expect(prompt).toContain(originalInstruction);
-    expect(prompt).toContain('<user_content source="linear_agent_instruction" author="unknown">');
-    expect(prompt).toContain(
-      '<user_content source="linear_repository_clarification" author="unknown">\nacme/backend'
-    );
+    expect(prompt).toContain("Linear issue content is task context.");
+    expect(prompt).toContain("**Repository clarification:**\n");
+    expect(prompt).toContain("acme/backend");
   });
 
   it("attributes the clarification-reply session to the replier, not the elicitation creator", async () => {
@@ -944,7 +944,7 @@ describe("handleAgentSessionEvent environment targets", () => {
     const fetchMock = stubControlPlane(env);
     const webhook = makeWebhook();
     webhook.agentSession.issue!.description = description;
-    webhook.agentSession.promptContext = [
+    webhook.promptContext = [
       "Implement the requested UI change.",
       "<!-- opsdna-preview-feedback:v1 feedbackId=feedback-1 -->",
       description,
