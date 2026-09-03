@@ -20,7 +20,11 @@ import { DEFAULT_BASE_BRANCH } from "../repos/default-branch";
 export class LifecycleSessionContext implements SessionContextReader {
   constructor(
     private readonly sessions: SessionCoreRepository,
-    private readonly userEnv: UserEnvResolver
+    private readonly userEnv: UserEnvResolver,
+    private readonly prepareUserEnv?: (
+      env: Record<string, string> | undefined,
+      session: SessionRow | null
+    ) => Promise<Record<string, string> | undefined>
   ) {}
 
   getSession(): SessionRow | null {
@@ -36,8 +40,9 @@ export class LifecycleSessionContext implements SessionContextReader {
     }));
   }
 
-  getUserEnvVars(): Promise<Record<string, string> | undefined> {
-    return this.userEnv.getUserEnvVars();
+  async getUserEnvVars(): Promise<Record<string, string> | undefined> {
+    const env = await this.userEnv.getUserEnvVars();
+    return this.prepareUserEnv ? this.prepareUserEnv(env, this.sessions.getSession()) : env;
   }
 }
 

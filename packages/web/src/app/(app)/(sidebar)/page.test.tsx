@@ -601,7 +601,7 @@ describe("Home", () => {
     const selection = JSON.stringify({ openai: { mode: "provider_account", accountId } });
     localStorage.setItem("open-inspect-last-provider-selections", selection);
     const setItem = localStorage.setItem.bind(localStorage);
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation((key, value) => {
+    vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
       if (key === "open-inspect-last-provider-selections:v1") throw new Error("Quota exceeded");
       setItem(key, value);
     });

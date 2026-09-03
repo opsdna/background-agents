@@ -220,6 +220,7 @@ function createTestHarness() {
     appName: "Open-Inspect",
     sessionPullRequests,
     resolveScmSettings: vi.fn(async () => ({})),
+    markNeonBranchOwnedByPullRequest: vi.fn(async () => 0),
   };
 
   return {

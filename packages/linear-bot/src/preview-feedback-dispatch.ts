@@ -1,5 +1,5 @@
 import type { Env } from "./types";
-import { timingSafeEqual } from "@open-inspect/shared";
+import { timingSafeEqual } from "@open-inspect/shared/auth";
 
 export type PreviewFeedbackAgentProfile = "research" | "implement";
 

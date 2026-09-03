@@ -42,6 +42,7 @@ import {
   type SlackAgentNotifyLookup,
 } from "../sandbox/lifecycle/manager";
 import { McpServerStore } from "../db/mcp-servers";
+import { SessionResourceStore } from "../db/session-resources";
 import { IntegrationSettingsStore, resolveSlackSettings } from "../db/integration-settings";
 import { SessionIndexStore } from "../db/session-index";
 import { parsePersistedSandboxSettings } from "../sandbox/settings";
@@ -105,6 +106,12 @@ import { PullRequestHandler } from "./http/handlers/pull-request.handler";
 import { ParticipantsHandler } from "./http/handlers/participants.handler";
 import { MessageService } from "./services/message.service";
 import { createAlarmHandler } from "./alarm/handler";
+import { SessionResourceCleanupService } from "./session-resource-cleanup";
+import {
+  hasNeonProvisioningConfig,
+  provisionNeonDatabaseEnv,
+  stripNeonControlConfig,
+} from "../sandbox/neon-provisioning";
 import {
   createEarliestAlarmScheduler,
   handleAlarmDelivery,
@@ -293,6 +300,7 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
   // rather than re-deriving its own copy.
   const sessionIndexStore = new SessionIndexStore(db);
   const sessionPullRequestStore = new SessionPullRequestStore(db);
+  const sessionResourceStore = new SessionResourceStore(db);
   const resolveRepoId = (sessionRow: SessionRow) =>
     resolveSessionRepoId(sessionRow, sessionCoreRepository, sourceControlProvider);
 
@@ -312,6 +320,50 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
     secretsCapEnforcement: env.SECRETS_CAP_ENFORCEMENT,
     log,
   });
+
+  const prepareSandboxUserEnv = async (
+    userEnvVars: Record<string, string> | undefined,
+    session: SessionRow | null
+  ): Promise<Record<string, string> | undefined> => {
+    if (!session || !userEnvVars) return userEnvVars;
+
+    const neonConfigured = hasNeonProvisioningConfig(userEnvVars);
+    let sandboxEnv = stripNeonControlConfig(userEnvVars);
+    if (neonConfigured) {
+      if (!session.repo_owner || !session.repo_name) {
+        log.warn("Skipping Neon branch provisioning for a session without a repository", {
+          event: "session.neon_branch_skipped",
+          session_id: session.id,
+        });
+        return Object.keys(sandboxEnv).length === 0 ? undefined : sandboxEnv;
+      }
+      const provisioned = await provisionNeonDatabaseEnv(userEnvVars, session);
+      if (provisioned) {
+        const publicSessionId = resolvePublicSessionId(session, durableObjectId);
+        await sessionResourceStore.upsertNeonBranch({
+          sessionId: publicSessionId,
+          repoOwner: session.repo_owner,
+          repoName: session.repo_name,
+          branchId: provisioned.branchId,
+          branchName: provisioned.branchName,
+          metadata: { projectId: provisioned.projectId },
+        });
+        sandboxEnv = { ...sandboxEnv, ...provisioned.env };
+        log.info("Provisioned Neon branch for sandbox", {
+          event: "session.neon_branch_provisioned",
+          session_id: session.id,
+          public_session_id: publicSessionId,
+          repo_owner: session.repo_owner,
+          repo_name: session.repo_name,
+          project_id: provisioned.projectId,
+          branch_id: provisioned.branchId,
+          branch_name: provisioned.branchName,
+        });
+      }
+    }
+
+    return Object.keys(sandboxEnv).length === 0 ? undefined : sandboxEnv;
+  };
 
   const terminalMessageProjection = new SessionTerminalMessageProjection({
     sessionIndex: sessionIndexStore,
@@ -346,6 +398,11 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
   });
 
   const scheduler = new Scheduler(db, env, backgroundTasks);
+  const sessionResourceCleanup = new SessionResourceCleanupService(
+    db,
+    repoSecretsEncryptionKey,
+    log
+  );
   const callbackService = new CallbackNotificationService({
     repository: sessionCoreRepository,
     messageRepository,
@@ -363,7 +420,12 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
     artifactRepository,
     messenger,
     sessionIndexStore,
-    env.SESSION ?? null
+    env.SESSION ?? null,
+    (sessionId, status, updatedAt) =>
+      backgroundTasks.submit(
+        () => sessionResourceCleanup.handleSessionStatus(sessionId, status, updatedAt),
+        { name: "session.resource_status" }
+      )
   );
 
   const titleService = new SessionTitleService({
@@ -391,7 +453,11 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
     db,
     getSessionId: getPublicSessionId,
     storage: sandboxRepository,
-    sessionContext: new LifecycleSessionContext(sessionCoreRepository, userEnvResolver),
+    sessionContext: new LifecycleSessionContext(
+      sessionCoreRepository,
+      userEnvResolver,
+      prepareSandboxUserEnv
+    ),
     repoSecretsEncryptionKey,
     messenger,
     wsManager,
@@ -648,6 +714,8 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
         appName: resolveAppName(env),
         sessionPullRequests: sessionPullRequestStore,
         resolveScmSettings: (repo) => resolveScmSettings(db, repo),
+        markNeonBranchOwnedByPullRequest: (input) =>
+          sessionResourceStore.markNeonBranchOwnedByPullRequest(input),
       });
 
       return pullRequestService.createPullRequest(input);
