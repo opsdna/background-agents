@@ -173,7 +173,9 @@ export function useSessionRename({
           if (confirmedByAuthority || owner.optimisticTitle === undefined) {
             if (confirmedByAuthority) owner.confirmedTitle = title;
             publishOptimisticTitle(owner, undefined);
-            revalidateSessionCaches(mutate);
+            // The session view has already supplied the authoritative title.
+            // Revalidating immediately can race the write and replace it with
+            // an older list response after the optimistic overlay is cleared.
             deleteIdleOwner(sessionId, owner);
             return confirmedByAuthority;
           }

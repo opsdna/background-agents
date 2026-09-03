@@ -449,6 +449,12 @@ export interface SourceControlProvider {
   readBlob(config: GetRepositoryConfig & { blobId: string; maxBytes: number }): Promise<Uint8Array>;
 
   /**
+   * Resolve a branch tip with app-level credentials. A confirmed 404 is
+   * absence; authentication, throttling, and transport failures throw.
+   */
+  getBranchHead(config: GetRepositoryConfig & { branch: string }): Promise<string | null>;
+
+  /**
    * Read the current state of a pull request.
    *
    * App-authenticated: credentials come from provider-level configuration
