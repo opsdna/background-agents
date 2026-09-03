@@ -57,7 +57,6 @@ module "linear_bot_worker" {
       { name = "LINEAR_WEBHOOK_SECRET", value = var.linear_webhook_secret },
       { name = "LINEAR_CLIENT_SECRET", value = var.linear_client_secret },
       { name = "SERVICE_AUTH_SECRET", value = random_password.service_auth_secret_linear_bot.result },
-      { name = "ANTHROPIC_API_KEY", value = var.anthropic_api_key },
       { name = "LINEAR_API_KEY", value = var.linear_api_key },
       { name = "PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET", value = var.preview_feedback_dispatch_hmac_secret },
     ],
