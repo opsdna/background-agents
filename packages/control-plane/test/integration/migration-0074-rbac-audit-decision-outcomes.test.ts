@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanD1Tables } from "./cleanup";
 
 const migration = () => {
-  const entry = env.TEST_MIGRATIONS.find((candidate) => candidate.name.startsWith("0073"));
-  if (!entry) throw new Error("Migration 0073 not found in TEST_MIGRATIONS");
+  const entry = env.TEST_MIGRATIONS.find((candidate) => candidate.name.startsWith("0074"));
+  if (!entry) throw new Error("Migration 0074 not found in TEST_MIGRATIONS");
   return entry;
 };
 
@@ -14,7 +14,7 @@ afterEach(async () => {
   await env.DB.batch(migration().queries.map((query) => env.DB.prepare(query)));
 });
 
-describe("migration 0073: RBAC audit decision outcomes", () => {
+describe("migration 0074: RBAC audit decision outcomes", () => {
   it("preserves structured events and admits denied and rejected decisions", async () => {
     await env.DB.batch([
       env.DB.prepare("DROP TRIGGER assign_default_role_after_user_insert"),

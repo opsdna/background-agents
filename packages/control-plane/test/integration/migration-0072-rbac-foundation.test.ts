@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanD1Tables } from "./cleanup";
 
 const migration = () => {
-  const entry = env.TEST_MIGRATIONS.find((candidate) => candidate.name.startsWith("0071"));
-  if (!entry) throw new Error("Migration 0071 not found in TEST_MIGRATIONS");
+  const entry = env.TEST_MIGRATIONS.find((candidate) => candidate.name.startsWith("0072"));
+  if (!entry) throw new Error("Migration 0072 not found in TEST_MIGRATIONS");
   return entry;
 };
 
@@ -25,7 +25,7 @@ afterEach(async () => {
   await cleanD1Tables();
 });
 
-describe("migration 0071: RBAC foundation", () => {
+describe("migration 0072: RBAC foundation", () => {
   it("backfills existing users before enabling Member defaults", async () => {
     await env.DB.exec(`
       DROP TRIGGER assign_default_role_after_user_insert;

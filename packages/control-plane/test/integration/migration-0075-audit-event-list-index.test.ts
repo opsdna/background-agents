@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
-describe("migration 0074: audit event list index", () => {
+describe("migration 0075: audit event list index", () => {
   it("creates the descending occurred-at and ID index", async () => {
     const indexes = await env.DB.prepare("PRAGMA index_list('authorization_audit_events')").all<{
       name: string;

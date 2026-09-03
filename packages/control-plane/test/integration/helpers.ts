@@ -54,6 +54,7 @@ const TEST_NAMED_SESSION_DEFAULTS = {
   repoId: 12345,
   userId: "user-1",
 } as const;
+const TEST_DEFAULT_MODEL = "anthropic/claude-haiku-4-5";
 export const TEST_SESSION_PROVIDER_AUTH: SessionModelProviderAuthInput[] = [
   { provider: "openai", authMode: "legacy_scoped_oauth", selectionSource: "legacy_fallback" },
   { provider: "xai", authMode: "legacy_scoped_oauth", selectionSource: "legacy_fallback" },
@@ -240,7 +241,7 @@ export async function initSession(overrides?: {
     title: defaults.title ?? null,
     repoOwner: defaults.repoOwner,
     repoName: defaults.repoName,
-    model: defaults.model ?? "anthropic/claude-haiku-4-5",
+    model: defaults.model ?? TEST_DEFAULT_MODEL,
     reasoningEffort: defaults.reasoningEffort ?? null,
     baseBranch: defaults.defaultBranch ?? "main",
     repositories: defaults.repositories,
@@ -254,7 +255,7 @@ export async function initSession(overrides?: {
   const res = await stub.fetch("http://internal/internal/init", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(doDefaults),
+    body: JSON.stringify({ ...doDefaults, model: defaults.model ?? TEST_DEFAULT_MODEL }),
   });
   if (res.status !== 200) throw new Error(`Init failed: ${res.status}`);
   return { stub, id, sessionName: defaults.sessionName };
@@ -394,7 +395,7 @@ export async function initNamedSession(
     title: defaults.title ?? null,
     repoOwner: defaults.repoOwner ?? null,
     repoName: defaults.repoName ?? null,
-    model: defaults.model ?? "anthropic/claude-haiku-4-5",
+    model: defaults.model ?? TEST_DEFAULT_MODEL,
     reasoningEffort: defaults.reasoningEffort ?? null,
     baseBranch: defaults.defaultBranch ?? "main",
     status: "created",
@@ -407,7 +408,10 @@ export async function initNamedSession(
     updatedAt: now,
   });
 
-  return initNamedSessionDO(sessionName, doDefaults);
+  return initNamedSessionDO(sessionName, {
+    ...doDefaults,
+    model: defaults.model ?? TEST_DEFAULT_MODEL,
+  });
 }
 
 /** Create only the named session DO for tests that manage the D1 row explicitly. */
@@ -417,7 +421,12 @@ export async function initNamedSessionDO(sessionName: string, init: Record<strin
   const res = await stub.fetch("http://internal/internal/init", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionName, ...TEST_NAMED_SESSION_DEFAULTS, ...init }),
+    body: JSON.stringify({
+      sessionName,
+      ...TEST_NAMED_SESSION_DEFAULTS,
+      ...init,
+      model: init.model ?? TEST_DEFAULT_MODEL,
+    }),
   });
   if (res.status !== 200) throw new Error(`Init failed: ${res.status}`);
   return { stub, id, sessionName };

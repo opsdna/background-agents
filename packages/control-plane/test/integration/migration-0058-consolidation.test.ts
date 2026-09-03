@@ -2,11 +2,11 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 
 /**
- * Fold-in safety tests for migration 0057 (Better Auth → canonical registry
+ * Fold-in safety tests for migration 0058 (Better Auth → canonical registry
  * consolidation). The harness applies all migrations up front, so each test
- * reconstructs the PRE-0057 schema (canonical tables without the new columns,
+ * reconstructs the PRE-0058 schema (canonical tables without the new columns,
  * plus the parallel auth tables from 0048), seeds one drift state, executes
- * the real 0057 statements from TEST_MIGRATIONS, and asserts the folded
+ * the real 0058 statements from TEST_MIGRATIONS, and asserts the folded
  * outcome. A failing statement would abort the Terraform apply, so every
  * seedable drift state must complete.
  *
@@ -105,8 +105,8 @@ async function resetToPre0057(): Promise<void> {
 }
 
 async function applyConsolidation(): Promise<void> {
-  const migration = env.TEST_MIGRATIONS.find((entry) => entry.name.startsWith("0057"));
-  if (!migration) throw new Error("Migration 0057 not found in TEST_MIGRATIONS");
+  const migration = env.TEST_MIGRATIONS.find((entry) => entry.name.startsWith("0058"));
+  if (!migration) throw new Error("Migration 0058 not found in TEST_MIGRATIONS");
   for (const query of migration.queries) {
     await env.DB.prepare(query).run();
   }
@@ -182,7 +182,7 @@ beforeEach(async () => {
   await resetToPre0057();
 });
 
-describe("migration 0057: Better Auth → canonical consolidation", () => {
+describe("migration 0058: Better Auth → canonical consolidation", () => {
   it("merges same-id auth rows: NULL-email canonical rows acquire the verified auth email", async () => {
     const userId = "11111111111111111111111111111111";
     await seedCanonical(userId, null);
