@@ -17,13 +17,13 @@ async function tableColumns(): Promise<string[]> {
 
 async function restoreMigration(): Promise<void> {
   if (!(await tableColumns()).includes("operation_result")) {
-    await env.DB.batch(migration("0072").queries.map((query) => env.DB.prepare(query)));
+    await env.DB.batch(migration("0073").queries.map((query) => env.DB.prepare(query)));
   }
   const table = await env.DB.prepare(
     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'authorization_audit_events'"
   ).first<{ sql: string }>();
   if (!table?.sql.includes("'denied'")) {
-    await env.DB.batch(migration("0073").queries.map((query) => env.DB.prepare(query)));
+    await env.DB.batch(migration("0074").queries.map((query) => env.DB.prepare(query)));
   }
 }
 
@@ -34,7 +34,7 @@ afterEach(async () => {
   await cleanD1Tables();
 });
 
-describe("migration 0072: RBAC audit fidelity", () => {
+describe("migration 0073: RBAC audit fidelity", () => {
   it("adds result metadata and atomically audits default role assignments", async () => {
     await env.DB.batch([
       env.DB.prepare("DROP TRIGGER assign_default_role_after_user_insert"),
@@ -63,7 +63,7 @@ describe("migration 0072: RBAC audit fidelity", () => {
       ),
     ]);
 
-    await env.DB.batch(migration("0072").queries.map((query) => env.DB.prepare(query)));
+    await env.DB.batch(migration("0073").queries.map((query) => env.DB.prepare(query)));
 
     expect(await tableColumns()).toEqual([
       "id",
