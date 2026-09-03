@@ -94,6 +94,7 @@ import {
   resolveAutomationSessionTarget,
   type AutomationSessionTarget,
 } from "../automation/session-target";
+import { SessionResourceCleanupService } from "../session/session-resource-cleanup";
 import {
   isAutomationExecutionAuthorized,
   type AutomationExecutionAuthorizationRequest,
@@ -921,6 +922,9 @@ export class Scheduler {
     await this.recoverySweep(store);
     await sweepHeldPrompts(this.continuityDeps(store), now);
 
+    // 1b. External resource cleanup sweep
+    await this.resourceCleanupSweep(now);
+
     // 2. Process overdue automations, bounded by the per-tick child budget.
     const overdue = await store.getOverdueAutomations(now, MAX_PER_TICK);
     const [repositoriesByAutomation, environmentsByAutomation] = await Promise.all([
@@ -1028,6 +1032,29 @@ export class Scheduler {
     });
 
     return { processed, skipped, failed };
+  }
+
+  private async resourceCleanupSweep(now: number): Promise<void> {
+    const cleanup = new SessionResourceCleanupService(
+      this.db,
+      this.env.REPO_SECRETS_ENCRYPTION_KEY,
+      this.log
+    );
+
+    try {
+      const result = await cleanup.processDue(now, 25);
+      if (result.scanned > 0) {
+        this.log.info("Session resource cleanup sweep completed", {
+          event: "scheduler.session_resource_cleanup",
+          ...result,
+        });
+      }
+    } catch (error) {
+      this.log.error("Session resource cleanup sweep failed", {
+        event: "scheduler.session_resource_cleanup_failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   // ─── Recovery sweep ──────────────────────────────────────────────────────

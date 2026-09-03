@@ -8,7 +8,7 @@ const MIGRATIONS_DIRECTORY = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../../../../terraform/d1/migrations"
 );
-const ISSUER_BACKFILL_MIGRATION = "0056_backfill_user_identity_issuers.sql";
+const ISSUER_BACKFILL_MIGRATION = "0057_backfill_user_identity_issuers.sql";
 
 function applyMigrationsBeforeIssuerBackfill(db: DatabaseSync): void {
   const migrationFiles = readdirSync(MIGRATIONS_DIRECTORY)
