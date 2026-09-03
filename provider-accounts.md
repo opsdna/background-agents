@@ -2,8 +2,8 @@
 
 ## Status
 
-Implemented V1 architecture. D1 migrations `0064_provider_accounts.sql` and
-`0065_provider_account_authorizations.sql`, the shared contracts, and the control-plane routes are
+Implemented V1 architecture. D1 migrations `0065_provider_accounts.sql` and
+`0066_provider_account_authorizations.sql`, the shared contracts, and the control-plane routes are
 the executable sources of truth. This document records the stable data, lifecycle, selection, and
 runtime boundaries, including coexistence with existing managed OAuth secrets.
 
@@ -274,8 +274,8 @@ explicit non-rotating response differently.
 
 ## Data Model
 
-The schema is implemented across `0064_provider_accounts.sql` and
-`0065_provider_account_authorizations.sql`. The excerpts below summarize the current design; the
+The schema is implemented across `0065_provider_accounts.sql` and
+`0066_provider_account_authorizations.sql`. The excerpts below summarize the current design; the
 migrations remain authoritative for complete SQLite constraints and indexes.
 
 ### `model_provider_accounts`
@@ -364,7 +364,7 @@ The stored encoding must carry an encryption format version to permit later key 
 
 ### `model_provider_account_authorizations`
 
-Migration `0065_provider_account_authorizations.sql` adds user-owned device-authorization
+Migration `0066_provider_account_authorizations.sql` adds user-owned device-authorization
 transactions. A transaction records provider, `create` or `reconnect` operation, reconnect lifecycle
 snapshot or create display name, encrypted provider state, polling cadence and expiry, terminal
 result, and processing-claim metadata. Its state is one of `initiating`, `pending`, `processing`,
@@ -1335,7 +1335,7 @@ Build `@open-inspect/shared` before dependent packages.
 
 V1 is implemented by these architectural layers:
 
-- D1 migrations `0064_provider_accounts.sql` and `0065_provider_account_authorizations.sql` define
+- D1 migrations `0065_provider_accounts.sql` and `0066_provider_account_authorizations.sql` define
   account, credential, default, session/automation binding, and device-authorization persistence.
 - `@open-inspect/shared` owns provider IDs and API contracts.
 - The control plane owns adapters, device authorization, account lifecycle, default resolution,
