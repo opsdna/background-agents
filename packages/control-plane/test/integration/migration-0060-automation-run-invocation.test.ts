@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 
-const PRE_0059_SCHEMA = [
+const PRE_0060_SCHEMA = [
   `CREATE TABLE automation_runs (
      id              TEXT    PRIMARY KEY,
      automation_id   TEXT    NOT NULL,
@@ -42,11 +42,11 @@ const PRE_0059_SCHEMA = [
      WHERE environment_id IS NOT NULL`,
 ];
 
-async function resetToPre0059(): Promise<void> {
+async function resetToPre0060(): Promise<void> {
   await env.DB.exec(
     "DELETE FROM automation_runs; DELETE FROM automation_invocations; DELETE FROM automation_repositories; DELETE FROM automation_environments; DELETE FROM automations; DROP TABLE IF EXISTS automation_runs_new; DROP TABLE automation_runs;"
   );
-  for (const statement of PRE_0059_SCHEMA) {
+  for (const statement of PRE_0060_SCHEMA) {
     await env.DB.prepare(statement).run();
   }
   await env.DB.prepare(
@@ -58,15 +58,15 @@ async function resetToPre0059(): Promise<void> {
   ).run();
 }
 
-async function applyMigration0059(): Promise<void> {
-  const migration = env.TEST_MIGRATIONS.find((entry) => entry.name.startsWith("0059"));
-  if (!migration) throw new Error("Migration 0059 not found in TEST_MIGRATIONS");
+async function applyMigration0060(): Promise<void> {
+  const migration = env.TEST_MIGRATIONS.find((entry) => entry.name.startsWith("0060"));
+  if (!migration) throw new Error("Migration 0060 not found in TEST_MIGRATIONS");
   await env.DB.batch(migration.queries.map((query) => env.DB.prepare(query)));
 }
 
-beforeEach(resetToPre0059);
+beforeEach(resetToPre0060);
 
-describe("migration 0059: require automation run invocation", () => {
+describe("migration 0060: require automation run invocation", () => {
   it("preserves the complete run row, constraints, and indexes", async () => {
     await env.DB.prepare(
       `INSERT INTO automation_runs
@@ -77,7 +77,7 @@ describe("migration 0059: require automation run invocation", () => {
                1100, 1200, 1300, 1000, 'inv-1', 'acme', 'repo', 42, 'main', 'env-1')`
     ).run();
 
-    await applyMigration0059();
+    await applyMigration0060();
 
     const row = await env.DB.prepare("SELECT * FROM automation_runs WHERE id = 'run-1'").first();
     expect(row).toEqual({
@@ -142,7 +142,7 @@ describe("migration 0059: require automation run invocation", () => {
        VALUES ('run-malformed', 'auto-1', 'starting', 1100, 1000, NULL)`
     ).run();
 
-    await expect(applyMigration0059()).rejects.toThrow(/NOT NULL constraint failed/);
+    await expect(applyMigration0060()).rejects.toThrow(/NOT NULL constraint failed/);
 
     expect(await env.DB.prepare("SELECT id, invocation_id FROM automation_runs").first()).toEqual({
       id: "run-malformed",
