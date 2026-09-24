@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MODEL, type ModelCategory } from "@open-inspect/shared/models";
+import type { ModelCategory } from "@open-inspect/shared/models";
 import { filterModelOptionsForHarness, resolveHarnessModelSelection } from "./session-harness";
 
 const OPENAI_MODEL = "openai/gpt-5.4";
+const ANTHROPIC_MODEL = "anthropic/claude-sonnet-4-6";
 const options: ModelCategory[] = [
-  { category: "Anthropic", models: [{ id: DEFAULT_MODEL, name: "Default", description: "" }] },
+  { category: "Anthropic", models: [{ id: ANTHROPIC_MODEL, name: "Claude", description: "" }] },
   { category: "OpenAI", models: [{ id: OPENAI_MODEL, name: "GPT-5.4", description: "" }] },
 ];
 
@@ -32,12 +33,12 @@ describe("resolveHarnessModelSelection", () => {
     const selection = resolveHarnessModelSelection({
       harness: "claude",
       preference: { model: OPENAI_MODEL },
-      enabledModels: [OPENAI_MODEL, DEFAULT_MODEL],
+      enabledModels: [OPENAI_MODEL, ANTHROPIC_MODEL],
       enabledModelOptions: options,
       loading: false,
     });
     expect(selection.availability).toEqual({ status: "available" });
-    expect(selection.model).toBe(DEFAULT_MODEL);
+    expect(selection.model).toBe(ANTHROPIC_MODEL);
     expect(selection.options).toEqual([options[0]]);
   });
 

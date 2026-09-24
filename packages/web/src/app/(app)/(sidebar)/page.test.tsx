@@ -784,7 +784,8 @@ describe("Home", () => {
 
   it("restores a stored harness and switches an incompatible model to one it can run", async () => {
     const openAiModel = "openai/gpt-5.4";
-    mocks.enabledModelsValue = [DEFAULT_MODEL, openAiModel];
+    const claudeModel = "anthropic/claude-sonnet-4-6";
+    mocks.enabledModelsValue = [claudeModel, openAiModel];
     localStorage.setItem("open-inspect-last-selected-model", openAiModel);
     localStorage.setItem("open-inspect-last-selected-harness", "claude");
     render(<Home />);
@@ -797,11 +798,12 @@ describe("Home", () => {
     });
 
     await waitFor(() =>
-      expect(sessionCreateBody()).toMatchObject({ harness: "claude", model: DEFAULT_MODEL })
+      expect(sessionCreateBody()).toMatchObject({ harness: "claude", model: claudeModel })
     );
   });
 
   it("persists a harness choice and re-warms the draft session with it", async () => {
+    mocks.enabledModelsValue = ["anthropic/claude-sonnet-4-6", DEFAULT_MODEL];
     render(<Home />);
     fireEvent.change(screen.getByPlaceholderText("What do you want to build?"), {
       target: { value: "Ship it" },
@@ -837,6 +839,7 @@ describe("Home", () => {
 
   it("drops a connected Anthropic account pin when the harness switches to OpenCode", async () => {
     const accountId = "c".repeat(32);
+    mocks.enabledModelsValue = ["anthropic/claude-sonnet-4-6", DEFAULT_MODEL];
     mocks.providerAccountsValue = [activeAnthropicAccount(accountId)];
     localStorage.setItem("open-inspect-last-selected-harness", "claude");
     localStorage.setItem(

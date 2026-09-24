@@ -1222,6 +1222,7 @@ describe("model normalization", () => {
 });
 
 describe("agent harness", () => {
+  const claudeModel = "anthropic/claude-sonnet-4-6";
   const baseInitialValues = {
     name: "Daily review",
     repositories: singleRepository,
@@ -1258,7 +1259,7 @@ describe("agent harness", () => {
   });
 
   it("loads an existing automation's harness and keeps the model inside it", () => {
-    enabledModelsValue = ["openai/gpt-5.4", DEFAULT_MODEL];
+    enabledModelsValue = ["openai/gpt-5.4", claudeModel];
     const { onSubmit, submit } = renderForm({ harness: "claude" }, "edit");
     expect(screen.getByRole("combobox", { name: "Agent harness" })).toHaveTextContent(
       "Claude Agent"
@@ -1266,11 +1267,11 @@ describe("agent harness", () => {
 
     submit();
 
-    expect(onSubmit.mock.calls[0][0]).toMatchObject({ harness: "claude", model: DEFAULT_MODEL });
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ harness: "claude", model: claudeModel });
   });
 
   it("submits a newly selected harness and coerces the model to one it can run", () => {
-    enabledModelsValue = ["openai/gpt-5.4", DEFAULT_MODEL];
+    enabledModelsValue = ["openai/gpt-5.4", claudeModel];
     const { onSubmit, submit } = renderForm({}, "create");
 
     fireEvent.click(screen.getByRole("combobox", { name: "Agent harness" }));
@@ -1280,11 +1281,11 @@ describe("agent harness", () => {
     submit();
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
-    expect(onSubmit.mock.calls[0][0]).toMatchObject({ harness: "claude", model: DEFAULT_MODEL });
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ harness: "claude", model: claudeModel });
   });
 
   it("drops a connected Anthropic account pin when the harness switches to OpenCode", () => {
-    enabledModelsValue = ["openai/gpt-5.4", DEFAULT_MODEL];
+    enabledModelsValue = ["openai/gpt-5.4", claudeModel];
     const accountId = "b".repeat(32);
     const { onSubmit, submit } = renderForm(
       {
@@ -1302,7 +1303,7 @@ describe("agent harness", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0][0]).toMatchObject({
       harness: "opencode",
-      model: DEFAULT_MODEL,
+      model: "openai/gpt-5.4",
       providerSelections: {},
     });
   });

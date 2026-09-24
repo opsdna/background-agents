@@ -54,25 +54,24 @@ variables {
   allowed_users        = "octocat"
 }
 
-# The defaults must reproduce the values these bindings carried while they were
-# hardcoded, so making them configurable changes no existing deployment. Each
-# bot keeps its own default deliberately: they are not required to agree.
-run "defaults_preserve_the_previously_hardcoded_models" {
+# The configured defaults reach each bot binding unless an operator overrides
+# that bot's model. Each bot keeps its own setting deliberately.
+run "defaults_use_gpt_5_5_for_each_bot" {
   command = plan
 
   assert {
-    condition     = module.github_bot_worker[0].plain_text_bindings["DEFAULT_MODEL"] == "anthropic/claude-haiku-4-5"
-    error_message = "The GitHub bot's default model binding must stay anthropic/claude-haiku-4-5."
+    condition     = module.github_bot_worker[0].plain_text_bindings["DEFAULT_MODEL"] == "openai/gpt-5.5"
+    error_message = "The GitHub bot's default model binding must be openai/gpt-5.5."
   }
 
   assert {
-    condition     = module.slack_bot_worker[0].plain_text_bindings["DEFAULT_MODEL"] == "claude-haiku-4-5"
-    error_message = "The Slack bot's default model binding must stay claude-haiku-4-5."
+    condition     = module.slack_bot_worker[0].plain_text_bindings["DEFAULT_MODEL"] == "openai/gpt-5.5"
+    error_message = "The Slack bot's default model binding must be openai/gpt-5.5."
   }
 
   assert {
-    condition     = module.linear_bot_worker[0].plain_text_bindings["DEFAULT_MODEL"] == "claude-sonnet-4-6"
-    error_message = "The Linear bot's default model binding must stay claude-sonnet-4-6."
+    condition     = module.linear_bot_worker[0].plain_text_bindings["DEFAULT_MODEL"] == "openai/gpt-5.5"
+    error_message = "The Linear bot's default model binding must be openai/gpt-5.5."
   }
 }
 
