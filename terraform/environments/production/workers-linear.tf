@@ -50,14 +50,13 @@ module "linear_bot_worker" {
     WORKER_URL           = { value = "https://open-inspect-linear-bot-${local.name_suffix}.${var.cloudflare_worker_subdomain}.workers.dev" }
   }
 
-<<<<<<< HEAD
   secrets = merge(
     {
-      LINEAR_WEBHOOK_SECRET = { value = var.linear_webhook_secret }
-      LINEAR_CLIENT_SECRET  = { value = var.linear_client_secret }
-      SERVICE_AUTH_SECRET   = { value = random_password.service_auth_secret_linear_bot.result }
+      LINEAR_WEBHOOK_SECRET                 = { value = var.linear_webhook_secret }
+      LINEAR_CLIENT_SECRET                  = { value = var.linear_client_secret }
+      SERVICE_AUTH_SECRET                   = { value = random_password.service_auth_secret_linear_bot.result }
       PREVIEW_FEEDBACK_DISPATCH_HMAC_SECRET = { value = var.preview_feedback_dispatch_hmac_secret }
-      LINEAR_API_KEY        = { value = var.linear_api_key }
+      LINEAR_API_KEY                        = { value = var.linear_api_key }
     },
     local.classifier_secret_bindings
   )
