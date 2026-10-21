@@ -95,7 +95,14 @@ async function createSession() {
   // off the network. Repository resolution has its own coverage.
   const { status, body } = await signedFetch("/sessions", {
     method: "POST",
-    body: { name: "compose smoke", actorEmail: ACTOR_EMAIL, actorDisplayName: "Compose Smoke" },
+    body: {
+      name: "compose smoke",
+      actorEmail: ACTOR_EMAIL,
+      actorDisplayName: "Compose Smoke",
+      // The stand-in data plane needs no LLM credentials; avoid OAuth-dependent defaults.
+      model: "anthropic/claude-sonnet-4-6",
+      harness: "opencode",
+    },
   });
   if (status !== 201) fail(`session create returned ${status}`, body);
   if (!body?.sessionId) fail("session create returned no sessionId", body);
