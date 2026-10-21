@@ -9,7 +9,7 @@ const TOKEN_COLUMNS = [
   "cache_write_tokens",
 ];
 
-describe("migration 0081: session token totals", () => {
+describe("migration 0082: session token totals", () => {
   it("adds a non-null integer column per token kind defaulting to zero", async () => {
     const columns = await env.DB.prepare("PRAGMA table_info('sessions')").all<{
       name: string;

@@ -26,7 +26,7 @@ settings. Codex runs OpenAI models only and authenticates with an OpenAI API key
 account connected under **Settings > Provider Accounts**; the legacy `OPENAI_OAUTH_*` secrets are
 not used. A model, reasoning effort, or credential Codex can't use is rejected instead of being
 replaced with a default. Some efforts, such as `max` on GPT-5.6 Sol, are available only on Codex.
-Requires D1 migration 0087 and a sandbox image rebuild.
+Requires D1 migration 0088 and a sandbox image rebuild.
 
 **Mark all as read.** Hover the **Needs attention** heading in the sidebar or on a team overview
 page to mark every unread session in it as read, including pages not yet loaded. Only sessions
@@ -55,7 +55,7 @@ deliveries with the same key become follow-ups in the session the first one star
 thread replies do. Follow-ups that arrive while that run is still starting are held and delivered in
 order. If the session can't take a follow-up, the webhook returns an error instead of starting a new
 session. The 7-day continuation window now counts from the session's last activity, for Slack
-automations too. Requires D1 migration 0086. See
+automations too. Requires D1 migration 0087. See
 [Continuing a session](docs/AUTOMATIONS.md#continuing-a-session).
 
 **Markdown preview in the Changes panel.** Changed Markdown files get a **Preview** view beside
@@ -128,7 +128,7 @@ between sessions. Agents in both harnesses search, read, and propose memories. O
 written in a root session that has stayed private and owner-only become active immediately; all
 other agent writes wait for approval. Manage personal memories under **Settings > Memories** and
 repository and environment memories under **Settings > Shared memories**; each session's sidebar
-lists the memories it loaded. Requires D1 migration 0084 and a sandbox image rebuild. See
+lists the memories it loaded. Requires D1 migration 0085 and a sandbox image rebuild. See
 [Persistent session memory](docs/MEMORY.md).
 
 ## October 2, 2026

@@ -15,6 +15,7 @@ function harness() {
     updateSessionStatus: vi.fn(),
   };
   const statusProjection = { project: vi.fn(async () => true) };
+  const onStatusChange = vi.fn();
   const service = new SessionStatusService(
     createTestBackgroundTasks(),
     createLogger("control-plane"),
@@ -25,12 +26,34 @@ function harness() {
     { broadcast: vi.fn(), sendToSandbox: vi.fn() } as SessionMessenger,
     { finalizeChildAdmission: vi.fn(), updateMetrics: vi.fn() },
     statusProjection,
-    { fetch: vi.fn() } as SessionRuntimeClient
+    { fetch: vi.fn() } as SessionRuntimeClient,
+    onStatusChange
   );
-  return { service, repository, statusProjection };
+  return { service, repository, statusProjection, onStatusChange };
 }
 
 describe("SessionStatusService.transition", () => {
+  it("notifies resource lifecycle after a committed transition", async () => {
+    const h = harness();
+
+    await h.service.transition("created");
+
+    const session = h.repository.getSession();
+    expect(h.onStatusChange).toHaveBeenCalledWith(
+      session.session_name ?? session.id,
+      "created",
+      expect.any(Number)
+    );
+  });
+
+  it("does not notify resource lifecycle for an unchanged status", async () => {
+    const h = harness();
+
+    await h.service.transition(h.repository.getSession().status);
+
+    expect(h.onStatusChange).not.toHaveBeenCalled();
+  });
+
   it("keeps local write failures as promise rejections", async () => {
     const h = harness();
     h.repository.updateSessionStatus.mockImplementation(() => {

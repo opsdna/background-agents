@@ -155,9 +155,9 @@ visibility. Leading a team does not grant access to its private sessions.
 ### Team Defaults and Migration
 
 A team's default visibility accepts only `team` or `workspace` and sets the audience of new
-sessions, not their ownership. `private` remains an explicit per-session choice. Migration `0085`
+sessions, not their ownership. `private` remains an explicit per-session choice. Migration `0086`
 changes existing private team defaults to `team` without changing existing sessions, and adds
-triggers that reject private defaults. **Apply migration `0085` before deploying the matching
+triggers that reject private defaults. **Apply migration `0086` before deploying the matching
 application code**; otherwise existing private defaults can fail validation.
 
 ### Creating Sessions

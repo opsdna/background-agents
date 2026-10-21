@@ -16,6 +16,7 @@ const EFFORT_KEY = "open-inspect-last-selected-reasoning-effort";
 const LEGACY_PROVIDER_KEY = "open-inspect-last-provider-selections";
 const PROVIDER_KEY = "open-inspect-last-provider-selections:v1";
 const OPENAI_MODEL = "openai/gpt-6.1-sol";
+const ANTHROPIC_MODEL = "anthropic/claude-sonnet-4-6";
 const account: ModelProviderAccount = {
   id: "a".repeat(32),
   provider: "openai",
@@ -34,12 +35,12 @@ const pin: ModelProviderSelections = {
   openai: { mode: "provider_account", accountId: account.id },
 };
 const options: ModelCategory[] = [
-  { category: "Anthropic", models: [{ id: DEFAULT_MODEL, name: "Default", description: "" }] },
+  { category: "Anthropic", models: [{ id: ANTHROPIC_MODEL, name: "Claude", description: "" }] },
   { category: "OpenAI", models: [{ id: OPENAI_MODEL, name: "OpenAI", description: "" }] },
 ];
 const input: LaunchPreferencesInput = {
   models: {
-    enabledModels: [DEFAULT_MODEL, OPENAI_MODEL],
+    enabledModels: [DEFAULT_MODEL, OPENAI_MODEL, ANTHROPIC_MODEL],
     enabledModelOptions: options,
     loading: false,
   },
@@ -305,7 +306,7 @@ describe("useLaunchPreferences", () => {
 
     rerender(input.models);
     expect(result.current.ready).toBe(true);
-    expect(result.current.selectedModel).toBe(DEFAULT_MODEL);
+    expect(result.current.selectedModel).toBe(ANTHROPIC_MODEL);
     expect(result.current.modelOptions).toEqual([options[0]]);
     expect(storage.getItem(MODEL_KEY)).toBe(OPENAI_MODEL);
 
@@ -363,16 +364,16 @@ describe("useLaunchPreferences", () => {
 
     act(() => result.current.handleModelChange(OPENAI_MODEL));
     act(() => result.current.handleHarnessChange("claude"));
-    expect(result.current.selectedModel).toBe(DEFAULT_MODEL);
+    expect(result.current.selectedModel).toBe(ANTHROPIC_MODEL);
     expect(storage.getItem(MODEL_KEY)).toBe(OPENAI_MODEL);
     act(() => result.current.handleHarnessChange("opencode"));
     expect(result.current.selectedModel).toBe(OPENAI_MODEL);
 
     act(() => result.current.handleHarnessChange("claude"));
     act(() => result.current.handleReasoningEffortChange("high"));
-    expect(storage.getItem(MODEL_KEY)).toBe(DEFAULT_MODEL);
+    expect(storage.getItem(MODEL_KEY)).toBe(ANTHROPIC_MODEL);
     expect(storage.getItem(EFFORT_KEY)).toBe("high");
     act(() => result.current.handleHarnessChange("opencode"));
-    expect(result.current.selectedModel).toBe(DEFAULT_MODEL);
+    expect(result.current.selectedModel).toBe(ANTHROPIC_MODEL);
   });
 });

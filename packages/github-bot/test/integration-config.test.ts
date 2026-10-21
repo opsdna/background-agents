@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Env } from "../src/types";
 import type { Logger } from "../src/logger";
 import { parseInlinePromptFlags } from "@open-inspect/shared/inline-prompt-flags";
+import { DEFAULT_MODEL } from "@open-inspect/shared/models";
 
 import { getGitHubConfig } from "../src/utils/integration-config";
 import { resolveModelSelection } from "../src/model-selection";
@@ -307,7 +308,7 @@ describe("resolveModelSelection harness", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Stale model canonicalizes; the default harness runs the canonical one.
-    expect(result.selection.model).toBe("anthropic/claude-sonnet-4-6");
+    expect(result.selection.model).toBe(DEFAULT_MODEL);
     expect(result.selection.harness).toBe("opencode");
     expect(log.warn).not.toHaveBeenCalled();
   });
@@ -346,7 +347,7 @@ describe("resolveModelSelection harness", () => {
     });
     expect(log.warn).not.toHaveBeenCalled();
   });
-  it("keeps Claude after canonicalizing a stale deployment model", async () => {
+  it("refuses Claude when a stale model resolves to the OpenAI deployment default", async () => {
     const log = createMockLogger();
     const result = await resolveModelSelection(
       env,
@@ -356,8 +357,11 @@ describe("resolveModelSelection harness", () => {
       undefined
     );
     expect(result).toMatchObject({
-      ok: true,
-      selection: { model: "anthropic/claude-sonnet-4-6", harness: "claude", reasoningEffort: null },
+      ok: false,
+      reason: "harness_model_incompatible",
+      message: expect.stringContaining(
+        `Model "${DEFAULT_MODEL}" cannot run on the Claude Agent harness.`
+      ),
     });
     expect(log.warn).not.toHaveBeenCalled();
   });

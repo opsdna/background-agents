@@ -3,11 +3,7 @@ import type { SqlDatabase } from "./sql-database";
 export type SessionResourceType = "neon_branch";
 export type SessionResourceLifecycleOwner = "open_inspect_session" | "github_pr";
 export type SessionResourceStatus =
-  | "active"
-  | "pending_delete"
-  | "deleting"
-  | "delete_failed"
-  | "deleted";
+  "active" | "pending_delete" | "deleting" | "delete_failed" | "deleted";
 
 export interface SessionResourceRow {
   id: string;

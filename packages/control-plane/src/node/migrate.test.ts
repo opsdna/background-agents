@@ -52,7 +52,7 @@ describe("applyMigrations", () => {
 
   it("leaves existing resources workspace-owned without creating teams or memberships", () => {
     for (const name of readdirSync(MIGRATIONS_DIR).filter(
-      (file) => file.endsWith(".sql") && file < "0083"
+      (file) => file.endsWith(".sql") && file < "0084"
     )) {
       copyFileSync(join(MIGRATIONS_DIR, name), join(dir, name));
     }
@@ -79,7 +79,7 @@ describe("applyMigrations", () => {
 
     expect(applyMigrations(db, MIGRATIONS_DIR)).toEqual(
       listMigrations(MIGRATIONS_DIR)
-        .filter((file) => file.name >= "0083")
+        .filter((file) => file.name >= "0084")
         .map((file) => file.name)
     );
     for (const table of ["sessions", "automations", "environments"]) {
@@ -137,12 +137,12 @@ describe("applyMigrations", () => {
   });
 
   it("upgrades legacy private team defaults without changing sessions or team dependents", () => {
-    for (const file of listMigrations(MIGRATIONS_DIR).filter((file) => file.version < "0085")) {
+    for (const file of listMigrations(MIGRATIONS_DIR).filter((file) => file.version < "0086")) {
       copyFileSync(file.path, join(dir, file.name));
     }
     applyMigrations(db, dir);
     const legacyLedger = ledger(db);
-    expect(legacyLedger.at(-1)).toEqual({ version: "0084", name: "0084_memories.sql" });
+    expect(legacyLedger.at(-1)).toEqual({ version: "0085", name: "0085_memories.sql" });
 
     db.exec(`
       INSERT INTO users (id, created_at, updated_at) VALUES
@@ -190,17 +190,17 @@ describe("applyMigrations", () => {
       })),
     };
 
-    const migrationName = "0085_team_default_visibility.sql";
+    const migrationName = "0086_team_default_visibility.sql";
     copyFileSync(join(MIGRATIONS_DIR, migrationName), join(dir, migrationName));
     expect(applyMigrations(db, dir)).toEqual([migrationName]);
     expect(snapshot()).toEqual(expected);
-    const upgradedLedger = [...legacyLedger, { version: "0085", name: migrationName }];
+    const upgradedLedger = [...legacyLedger, { version: "0086", name: migrationName }];
     expect(ledger(db)).toEqual(upgradedLedger);
     expect(applyMigrations(db, dir)).toEqual([]);
     expect(ledger(db)).toEqual(upgradedLedger);
     expect(snapshot()).toEqual(expected);
 
-    // The old host can still write after the migration ledger records 0085.
+    // The old host can still write after the migration ledger records 0086.
     for (const id of ["team_private", "team_private_archived"]) {
       expect(() =>
         db

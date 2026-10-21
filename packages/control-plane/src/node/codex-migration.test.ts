@@ -28,7 +28,7 @@ it("upgrades a full populated pre-Codex database without rebuilding FK parent ta
   try {
     db.exec("PRAGMA foreign_keys=ON");
     for (const file of readdirSync(directory).filter(
-      (file) => file.endsWith(".sql") && file < "0087"
+      (file) => file.endsWith(".sql") && file < "0088"
     )) {
       copyFileSync(join(directory, file), join(baseline, file));
     }
@@ -40,17 +40,17 @@ it("upgrades a full populated pre-Codex database without rebuilding FK parent ta
     const schema = db.prepare(CODEX_MIGRATION_SCHEMA_OBJECTS).all();
     // A failure after the DDL must roll back both parents and the ledger.
     writeFileSync(
-      join(baseline, "0087_codex_harness.sql"),
-      readFileSync(join(directory, "0087_codex_harness.sql"), "utf8") +
+      join(baseline, "0088_codex_harness.sql"),
+      readFileSync(join(directory, "0088_codex_harness.sql"), "utf8") +
         "\nUPDATE sessions SET harness='invalid';\n"
     );
     expect(() => applyMigrations(db, baseline)).toThrow();
     expect(
       CODEX_MIGRATION_TABLES.map((table) => db.prepare(`SELECT * FROM ${table}`).all())
     ).toEqual(before);
-    expect(db.prepare("SELECT * FROM _schema_migrations WHERE version='0087'").all()).toEqual([]);
+    expect(db.prepare("SELECT * FROM _schema_migrations WHERE version='0088'").all()).toEqual([]);
     expect(() => db.exec("UPDATE sessions SET harness='codex'")).toThrow();
-    expect(applyMigrations(db, directory)).toContain("0087_codex_harness.sql");
+    expect(applyMigrations(db, directory)).toContain("0088_codex_harness.sql");
     expect(
       CODEX_MIGRATION_TABLES.map((table) => db.prepare(`SELECT * FROM ${table}`).all())
     ).toEqual(before);

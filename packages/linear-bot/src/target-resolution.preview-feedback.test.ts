@@ -38,6 +38,8 @@ describe("preview feedback target resolution", () => {
         projectInfo: null,
         comment: null,
         traceId: "trace-id",
+        scope: { linearTeamId: "team-id" },
+        teamId: null,
         issueDescription,
       })
     ).resolves.toEqual({

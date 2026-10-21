@@ -15,7 +15,7 @@ export default defineConfig({
         url: "http://localhost",
       },
     },
-    setupFiles: ["./src/test/setup.ts", "./src/test-setup.ts"],
+    setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     coverage: {
       provider: "v8",

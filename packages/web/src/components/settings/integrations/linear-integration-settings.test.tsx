@@ -498,7 +498,7 @@ describe("LinearIntegrationSettings harness", () => {
   it.each([
     { globalModel: "anthropic/claude-sonnet-4-6", repoModel: undefined, warns: false },
     { globalModel: undefined, repoModel: undefined, warns: false },
-    { globalModel: "openai/gpt-5", repoModel: undefined, warns: false },
+    { globalModel: "openai/gpt-5", repoModel: undefined, warns: true },
     { globalModel: "openai/gpt-6-sol", repoModel: undefined, warns: true },
     { globalModel: "anthropic/claude-sonnet-4-6", repoModel: "openai/gpt-6-sol", warns: true },
   ])("warns without blocking sparse saves: %j", async (selection) => {

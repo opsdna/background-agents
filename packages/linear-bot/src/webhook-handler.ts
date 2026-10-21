@@ -36,10 +36,12 @@ import {
   resolveLinearTeamBinding,
 } from "./launch-admission";
 import { buildFollowUpPrompt, buildPrompt, buildPromptContextPrompt } from "./prompts";
-import { previewFeedbackProfileInstructions, stripPreviewFeedbackMarkers } from "./preview-feedback-dispatch";
+import {
+  previewFeedbackProfileInstructions,
+  stripPreviewFeedbackMarkers,
+} from "./preview-feedback-dispatch";
 
 const log = createLogger("handler");
-
 
 // ─── Sub-handlers ────────────────────────────────────────────────────────────
 
@@ -627,7 +629,6 @@ async function handleNewSession(
   });
 
   // ─── Send prompt ──────────────────────────────────────────────────────
-
 
   const promptUrl = `https://internal/sessions/${session.sessionId}/prompt`;
   const promptBody = JSON.stringify({

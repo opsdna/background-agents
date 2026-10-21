@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnessId } from "@open-inspect/shared/harnesses";
+import { DEFAULT_MODEL } from "@open-inspect/shared/models";
 import type { CreateSessionResponse } from "@open-inspect/shared/types/session-api";
 import { handleAgentSessionEvent } from "./webhook-handler";
 import type { AgentSessionWebhook } from "./types";
@@ -255,11 +256,11 @@ describe("handleAgentSessionEvent harness selection", () => {
 
   it("checks compatibility after canonicalizing a stale deployment model", async () => {
     const { createBody } = await delegate({
-      config: { harness: "claude" },
+      config: { harness: "opencode" },
       envDefaultModel: "openai/gpt-5",
     });
 
-    expect(createBody).toMatchObject({ harness: "claude", model: "anthropic/claude-sonnet-4-6" });
+    expect(createBody).toMatchObject({ harness: "opencode", model: DEFAULT_MODEL });
   });
 
   it.each([

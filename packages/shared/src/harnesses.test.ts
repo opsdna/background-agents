@@ -23,7 +23,8 @@ describe("harness selection policy", () => {
     "preserves %s legacy model and effort fallback",
     (harness) => {
       expect(resolveHarnessModel(harness, "unknown")).toBe(DEFAULT_MODEL);
-      expect(checkHarnessPromptCompatibility(harness, DEFAULT_MODEL, "invalid")).toBeNull();
+      const compatibleModel = harness === "claude" ? "anthropic/claude-sonnet-4-6" : DEFAULT_MODEL;
+      expect(checkHarnessPromptCompatibility(harness, compatibleModel, "invalid")).toBeNull();
     }
   );
   it("keeps invalid native models visible for rejection instead of substituting a default", () => {

@@ -164,6 +164,7 @@ describe("Codex admission", () => {
     }
   );
   it("uses an enabled native default instead of the Anthropic deployment default", async () => {
+    getEnabledModels.mockResolvedValue(["anthropic/claude-sonnet-4-6", "openai/gpt-6.1-sol"]);
     await expect(resolveHarnessSelection(db, enabled, { harness: "codex" })).resolves.toEqual({
       model: "openai/gpt-6.1-sol",
       reasoningEffort: "low",
@@ -187,6 +188,7 @@ describe("Codex admission", () => {
     }
   );
   it("rejects disabled native models and unavailable preference storage", async () => {
+    getEnabledModels.mockResolvedValue(["openai/gpt-6.1-sol"]);
     await expect(
       resolveHarnessSelection(db, enabled, { harness: "codex", model: "openai/gpt-5.5" })
     ).rejects.toThrow("not enabled");
