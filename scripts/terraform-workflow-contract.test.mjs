@@ -64,6 +64,8 @@ for (const [label, assignment] of [
 // deletion migration" step writes them to an auto.tfvars.json file), and
 // project_root is a path inside the checkout.
 const NOT_FROM_ENVIRONMENT = new Set([
+  // Retained only so older local tfvars still parse; no service consumes it.
+  "internal_callback_secret",
   "control_plane_migration_tag",
   "control_plane_migration_old_tag",
   "control_plane_new_sqlite_classes",
