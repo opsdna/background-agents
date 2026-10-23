@@ -1949,6 +1949,43 @@ describe("SandboxShutdownCoordinator", () => {
     });
   });
 
+  it("logs the retirement failure while keeping the saved recovery point held", async () => {
+    const failure = new Error("Failed to stop Modal sandbox", {
+      cause: new Error("Modal request timed out"),
+    });
+    const stopSandbox = vi.fn().mockRejectedValue(failure);
+    const f = fixture(provider({ stopSandbox }));
+    await readyFinite(f);
+    f.store.write({
+      ...f.store.value!,
+      phase: "unknown",
+      receipt: {
+        kind: "snapshot",
+        artifactId: "last-good-image",
+        provider: "modal",
+        savedAtMs: 50_000,
+        runtimeVersion: "runtime-1",
+      },
+    });
+
+    await f.shutdown.recover("restore_saved");
+
+    expect(f.store.value).toMatchObject({
+      phase: "unknown",
+      receipt: { artifactId: "last-good-image" },
+    });
+    expect(f.deps.retireAccess).not.toHaveBeenCalled();
+    expect(f.deps.log.warn).toHaveBeenCalledWith(
+      "Sandbox source retirement failed",
+      expect.objectContaining({
+        event: "sandbox.retirement_failed",
+        provider_object_id: "provider-object-1",
+        error: "Failed to stop Modal sandbox",
+        cause: "Modal request timed out",
+      })
+    );
+  });
+
   it("retains preflight retirement proof across restart without automatically retrying", async () => {
     const f = fixture();
     await readyFinite(f);

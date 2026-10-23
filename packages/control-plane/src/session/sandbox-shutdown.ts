@@ -1550,7 +1550,18 @@ export class SandboxShutdownCoordinator {
         state.retireByMs!
       );
       if (this.owns(state)) this.finish(state);
-    } catch {
+    } catch (error) {
+      this.deps.log?.warn("Sandbox source retirement failed", {
+        event: "sandbox.retirement_failed",
+        provider: this.deps.provider.name,
+        provider_object_id: state.providerObjectId,
+        sandbox_id: state.generation.sandboxId,
+        operation_id: state.operationId,
+        deadline_at_ms: state.retireByMs,
+        error: error instanceof Error ? error.message : String(error),
+        cause:
+          error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined,
+      });
       if (this.owns(state))
         this.fail(
           state,
