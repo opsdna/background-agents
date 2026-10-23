@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
+import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -144,7 +146,8 @@ class RepositorySynchronizer:
     async def ensure_credentials_configured(self) -> None:
         shim_path = Path("/usr/local/bin/oi-git-credentials")
         shim_body = (
-            '#!/bin/sh\nexec python3 -m sandbox_runtime.credentials.git_credential_helper "$@"\n'
+            f"#!/bin/sh\nexec {shlex.quote(sys.executable)} "
+            '-m sandbox_runtime.credentials.git_credential_helper "$@"\n'
         )
         shim_available = False
         try:

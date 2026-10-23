@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -47,7 +47,7 @@ EXITS_NONZERO = "#!/bin/sh\nexit 1\n"
 # present before use so that a drift in the wrapper body fails loudly here
 # instead of silently leaving the test running the real gh / helper.
 REAL_GH_ANCHOR = 'REAL_GH="/usr/bin/gh"'
-HELPER_ANCHOR = "python3 -m sandbox_runtime.credentials.git_credential_helper gh-token"
+HELPER_ANCHOR = "/usr/local/bin/oi-git-credentials gh-token"
 
 
 def _build_wrapper(tmp_path: Path, *, token_cmd_body: str) -> Path:
@@ -89,6 +89,37 @@ def test_exports_minted_token_as_gh_token(tmp_path: Path) -> None:
     out = _run(wrapper, {"VCS_HOST": "github.com"}).stdout
     assert "GH_TOKEN=ghs_fresh" in out
     assert "ARGS=api user" in out
+
+
+async def test_git_helper_ignores_python_on_shell_path(tmp_path, monkeypatch):
+    shim = tmp_path / "oi-git-credentials"
+    monkeypatch.setattr(repository_sync, "Path", lambda _path: shim)
+    process = MagicMock(returncode=0)
+    process.communicate = AsyncMock(return_value=(b"", b""))
+    monkeypatch.setattr(
+        repository_sync.asyncio, "create_subprocess_exec", AsyncMock(return_value=process)
+    )
+    synchronizer = RepositorySynchronizer("github.com", MagicMock())
+    monkeypatch.setattr(synchronizer, "_install_gh_wrapper", lambda: None)
+    await synchronizer.ensure_credentials_configured()
+
+    wrong_python = tmp_path / "python3"
+    wrong_python.write_text("#!/bin/sh\necho wrong-python >&2\nexit 99\n")
+    wrong_python.chmod(0o755)
+    result = subprocess.run(
+        [str(shim), "gh-token"],
+        env={
+            "PATH": str(tmp_path),
+            "PYTHONPATH": str(Path(repository_sync.__file__).parents[1]),
+            "VCS_CLONE_TOKEN": "synthetic-build-token",
+            "OI_SCM_CRED_CACHE_DIR": str(tmp_path / "cache"),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert result.stdout == "synthetic-build-token"
+    assert result.stderr == ""
 
 
 @pytest.mark.parametrize("session_id_field", ["sessionId", "session_id"])
